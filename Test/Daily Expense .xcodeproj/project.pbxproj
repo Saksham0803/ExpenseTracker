@@ -19,6 +19,10 @@
 		E381F1A72F2E037800990AAD /* SummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F19C2F2E037800990AAD /* SummaryView.swift */; };
 		E381F1A82F2E037800990AAD /* Expense.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F1932F2E037800990AAD /* Expense.swift */; };
 		E381F1AA2F2E12A000990AAD /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F1A92F2E12A000990AAD /* BackupView.swift */; };
+		F00DCAFE0000000000000002 /* SplitInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000001 /* SplitInfo.swift */; };
+		F00DCAFE0000000000000004 /* ContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000003 /* ContactPicker.swift */; };
+		F00DCAFE0000000000000006 /* LogCreditCardPaymentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */; };
+		F00DCAFE0000000000000008 /* CreditCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000007 /* CreditCardView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,6 +58,10 @@
 		E381F19B2F2E037800990AAD /* ShortcutsSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSetupView.swift; sourceTree = "<group>"; };
 		E381F19C2F2E037800990AAD /* SummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryView.swift; sourceTree = "<group>"; };
 		E381F1A92F2E12A000990AAD /* BackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupView.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000001 /* SplitInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitInfo.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000003 /* ContactPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactPicker.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogCreditCardPaymentView.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000007 /* CreditCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreditCardView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -145,6 +153,7 @@
 			isa = PBXGroup;
 			children = (
 				E381F1932F2E037800990AAD /* Expense.swift */,
+				F00DCAFE0000000000000001 /* SplitInfo.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -167,6 +176,9 @@
 				E381F19A2F2E037800990AAD /* MessageImportView.swift */,
 				E381F19B2F2E037800990AAD /* ShortcutsSetupView.swift */,
 				E381F19C2F2E037800990AAD /* SummaryView.swift */,
+				F00DCAFE0000000000000003 /* ContactPicker.swift */,
+				F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */,
+				F00DCAFE0000000000000007 /* CreditCardView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -250,7 +262,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					E381F1632F2DFE3A00990AAD = {
 						CreatedOnToolsVersion = 26.2;
@@ -327,6 +339,10 @@
 				E381F1A62F2E037800990AAD /* ShortcutsSetupView.swift in Sources */,
 				E381F1A72F2E037800990AAD /* SummaryView.swift in Sources */,
 				E381F1A82F2E037800990AAD /* Expense.swift in Sources */,
+				F00DCAFE0000000000000002 /* SplitInfo.swift in Sources */,
+				F00DCAFE0000000000000004 /* ContactPicker.swift in Sources */,
+				F00DCAFE0000000000000006 /* LogCreditCardPaymentView.swift in Sources */,
+				F00DCAFE0000000000000008 /* CreditCardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -394,6 +410,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -417,6 +434,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -456,6 +474,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -472,6 +491,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -483,6 +503,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -528,6 +549,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -572,6 +594,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
@@ -598,6 +621,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
@@ -623,6 +647,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
@@ -648,6 +673,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = NNMANN7N2W;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;

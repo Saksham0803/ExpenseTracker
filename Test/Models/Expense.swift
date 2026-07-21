@@ -35,8 +35,11 @@ struct Expense: Identifiable, Codable {
     var type: ExpenseType
     var date: Date
     var notes: String
-    
-    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "") {
+    /// Present when this charge was split with other people (e.g. paid on a credit
+    /// card and recovered from friends). `amount` still holds only your own share.
+    var split: SplitInfo?
+
+    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "", split: SplitInfo? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
@@ -44,11 +47,17 @@ struct Expense: Identifiable, Codable {
         self.type = type
         self.date = date
         self.notes = notes
+        self.split = split
     }
-    
+
     // Computed property for display amount (negative for refunds)
     var displayAmount: Double {
         type == .refund ? -amount : amount
+    }
+
+    /// True when this expense was paid on the credit card and split with others.
+    var isCreditCardSplit: Bool {
+        split != nil
     }
 }
 

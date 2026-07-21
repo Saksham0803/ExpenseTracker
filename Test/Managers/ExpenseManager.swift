@@ -59,6 +59,45 @@ class ExpenseManager: ObservableObject {
     func expensesForCategory(_ category: ExpenseCategory) -> [Expense] {
         expenses.filter { $0.category == category }
     }
+
+    // MARK: - Credit Card Split Tracking
+
+    /// All expenses that were split on the credit card, newest first.
+    var creditCardExpenses: [Expense] {
+        expenses.filter { $0.isCreditCardSplit }.sorted { $0.date > $1.date }
+    }
+
+    /// Total amount charged to the card across all split payments.
+    var creditCardCharged: Double {
+        creditCardExpenses.reduce(0) { $0 + ($1.split?.totalAmount ?? 0) }
+    }
+
+    /// Your own net spend from card splits (your shares only).
+    var creditCardMyNet: Double {
+        creditCardExpenses.reduce(0) { $0 + ($1.split?.myShare ?? 0) }
+    }
+
+    /// Money still owed to you across all card splits.
+    var creditCardOutstanding: Double {
+        creditCardExpenses.reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) }
+    }
+
+    /// Money already recovered from others.
+    var creditCardRecovered: Double {
+        creditCardExpenses.reduce(0) { $0 + ($1.split?.settledTotal ?? 0) }
+    }
+
+    /// Toggle a single participant's settled state and persist.
+    func setSettled(_ settled: Bool, participantID: UUID, in expense: Expense) {
+        guard let eIndex = expenses.firstIndex(where: { $0.id == expense.id }),
+              var split = expenses[eIndex].split,
+              let pIndex = split.participants.firstIndex(where: { $0.id == participantID })
+        else { return }
+
+        split.participants[pIndex].isSettled = settled
+        expenses[eIndex].split = split
+        saveExpenses()
+    }
     
     func expensesForDateRange(start: Date, end: Date) -> [Expense] {
         expenses.filter { $0.date >= start && $0.date <= end }
