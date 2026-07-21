@@ -119,7 +119,8 @@ struct AddExpenseView: View {
             category: selectedCategory,
             type: selectedType,
             date: istDate,
-            notes: notes
+            notes: notes,
+            split: expense?.split
         )
         
         if expense != nil {
