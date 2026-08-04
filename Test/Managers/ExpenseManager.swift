@@ -12,14 +12,17 @@ import Combine
 
 class ExpenseManager: ObservableObject {
     @Published var expenses: [Expense] = []
-    
+    @Published var groups: [PersonGroup] = []
+
     private let expensesKey = "SavedExpenses"
-    
+    private let groupsKey = "SavedGroups"
+
     // Shared instance for App Intents
     static let shared = ExpenseManager()
-    
+
     init() {
         loadExpenses()
+        loadGroups()
     }
     
     func addExpense(_ expense: Expense) {
@@ -119,11 +122,48 @@ class ExpenseManager: ObservableObject {
             UserDefaults.standard.set(encoded, forKey: expensesKey)
         }
     }
-    
+
     private func loadExpenses() {
         if let data = UserDefaults.standard.data(forKey: expensesKey),
            let decoded = try? JSONDecoder().decode([Expense].self, from: data) {
             expenses = decoded
+        }
+    }
+
+    // MARK: - Saved Groups
+
+    func addGroup(_ group: PersonGroup) {
+        groups.append(group)
+        saveGroups()
+    }
+
+    func updateGroup(_ group: PersonGroup) {
+        if let index = groups.firstIndex(where: { $0.id == group.id }) {
+            groups[index] = group
+            saveGroups()
+        }
+    }
+
+    func deleteGroup(_ group: PersonGroup) {
+        groups.removeAll { $0.id == group.id }
+        saveGroups()
+    }
+
+    func deleteGroups(at offsets: IndexSet) {
+        groups.remove(atOffsets: offsets)
+        saveGroups()
+    }
+
+    private func saveGroups() {
+        if let encoded = try? JSONEncoder().encode(groups) {
+            UserDefaults.standard.set(encoded, forKey: groupsKey)
+        }
+    }
+
+    private func loadGroups() {
+        if let data = UserDefaults.standard.data(forKey: groupsKey),
+           let decoded = try? JSONDecoder().decode([PersonGroup].self, from: data) {
+            groups = decoded
         }
     }
     

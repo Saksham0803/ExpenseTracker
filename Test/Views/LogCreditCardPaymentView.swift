@@ -17,6 +17,9 @@ struct LogCreditCardPaymentView: View {
         var name: String
         var contactIdentifier: String?
         var amountText: String = ""
+        /// True once the user types an explicit amount for this person; such
+        /// amounts are held fixed while the rest split the remainder equally.
+        var isManual: Bool = false
 
         var amount: Double { Double(amountText) ?? 0 }
     }
@@ -30,6 +33,9 @@ struct LogCreditCardPaymentView: View {
     @State private var participants: [EditableParticipant] = []
 
     @State private var showingContactPicker = false
+    @State private var showingGroups = false
+    @State private var showingSaveGroup = false
+    @State private var newGroupName = ""
 
     private var total: Double { Double(totalText) ?? 0 }
     private var participantsTotal: Double { participants.reduce(0) { $0 + $1.amount } }
@@ -77,20 +83,28 @@ struct LogCreditCardPaymentView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(participant.name)
-                                if participant.contactIdentifier != nil {
-                                    Text("Contact")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
+                                Text(participant.isManual ? "edited" : "split equally")
+                                    .font(.caption2)
+                                    .foregroundColor(participant.isManual ? .orange : .secondary)
                             }
                             Spacer()
-                            TextField("0", text: $participant.amountText)
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 90)
+                            TextField("0", text: Binding(
+                                get: { participant.amountText },
+                                set: { newValue in
+                                    $participant.wrappedValue.amountText = newValue
+                                    $participant.wrappedValue.isManual = !newValue.isEmpty
+                                    redistribute()
+                                }
+                            ))
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
                         }
                     }
-                    .onDelete { participants.remove(atOffsets: $0) }
+                    .onDelete { offsets in
+                        participants.remove(atOffsets: offsets)
+                        redistribute()
+                    }
 
                     Button {
                         showingContactPicker = true
@@ -100,8 +114,40 @@ struct LogCreditCardPaymentView: View {
 
                     Button {
                         participants.append(EditableParticipant(name: "Person \(participants.count + 1)"))
+                        redistribute()
                     } label: {
                         Label("Add manually", systemImage: "plus.circle")
+                    }
+
+                    Menu {
+                        if expenseManager.groups.isEmpty {
+                            Text("No saved groups")
+                        } else {
+                            ForEach(expenseManager.groups) { group in
+                                Button {
+                                    addMembers(from: group)
+                                } label: {
+                                    Label("\(group.name) (\(group.members.count))", systemImage: "person.3.fill")
+                                }
+                            }
+                        }
+                        Divider()
+                        Button {
+                            showingGroups = true
+                        } label: {
+                            Label("Manage groups…", systemImage: "gearshape")
+                        }
+                    } label: {
+                        Label("Add from group", systemImage: "person.3")
+                    }
+
+                    if !participants.isEmpty {
+                        Button {
+                            newGroupName = ""
+                            showingSaveGroup = true
+                        } label: {
+                            Label("Save these as a group", systemImage: "square.and.arrow.down")
+                        }
                     }
                 }
 
@@ -132,16 +178,89 @@ struct LogCreditCardPaymentView: View {
                         .disabled(!isValid)
                 }
             }
+            .onChange(of: totalText) { _ in redistribute() }
+            .onChange(of: myShareIncluded) { _ in redistribute() }
             .sheet(isPresented: $showingContactPicker) {
                 ContactPicker { picked in
                     participants.append(EditableParticipant(name: picked.name, contactIdentifier: picked.identifier))
+                    redistribute()
                 }
+            }
+            .sheet(isPresented: $showingGroups) {
+                GroupsView()
+            }
+            .alert("Save as group", isPresented: $showingSaveGroup) {
+                TextField("Group name", text: $newGroupName)
+                Button("Save") { saveCurrentAsGroup() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Save these \(participants.count) people so you can add them in one tap next time.")
             }
         }
     }
 
+    /// Add a saved group's members, skipping anyone already in the list.
+    private func addMembers(from group: PersonGroup) {
+        for member in group.members {
+            let alreadyThere = participants.contains { existing in
+                if let id = member.contactIdentifier, let eid = existing.contactIdentifier {
+                    return id == eid
+                }
+                return existing.name.caseInsensitiveCompare(member.name) == .orderedSame
+            }
+            if !alreadyThere {
+                participants.append(EditableParticipant(name: member.name, contactIdentifier: member.contactIdentifier))
+            }
+        }
+        redistribute()
+    }
+
+    /// Split the total equally across everyone who hasn't been given an explicit
+    /// amount. People with a manually entered amount keep it; the remainder is
+    /// divided evenly among the rest (and your own share, when included).
+    private func redistribute() {
+        let autoIndices = participants.indices.filter { !participants[$0].isManual }
+        guard !autoIndices.isEmpty else { return }
+        guard total > 0 else { return }
+
+        let manualTotal = participants.filter { $0.isManual }.reduce(0) { $0 + $1.amount }
+        let remaining = max(0, total - manualTotal)
+        // Your own share counts as one more equal head when it's included.
+        let heads = autoIndices.count + (myShareIncluded ? 1 : 0)
+        guard heads > 0 else { return }
+
+        func round2(_ x: Double) -> Double { (x * 100).rounded() / 100 }
+        let perHead = round2(remaining / Double(heads))
+        var amounts = autoIndices.map { _ in perHead }
+
+        // When your share isn't included, the participants must cover the whole
+        // remainder — give the rounding residual to the last person so it's exact.
+        if !myShareIncluded, let last = amounts.indices.last {
+            let residual = round2(remaining - amounts.reduce(0, +))
+            amounts[last] = round2(amounts[last] + residual)
+        }
+
+        for (k, i) in autoIndices.enumerated() {
+            participants[i].amountText = formatAmountText(amounts[k])
+        }
+    }
+
+    private func formatAmountText(_ value: Double) -> String {
+        if value == value.rounded() {
+            return String(Int(value))
+        }
+        return String(format: "%.2f", value)
+    }
+
+    private func saveCurrentAsGroup() {
+        let trimmed = newGroupName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !participants.isEmpty else { return }
+        let members = participants.map { GroupMember(name: $0.name, contactIdentifier: $0.contactIdentifier) }
+        expenseManager.addGroup(PersonGroup(name: trimmed, members: members))
+    }
+
     private var splitFooter: some View {
-        Text("Enter what each person owes you. Anything left over is your own share.")
+        Text("Everyone splits the total equally by default. Type an amount for anyone to fix their share — the rest re-split what's left.")
     }
 
     private func summaryRow(label: String, value: Double, color: Color) -> some View {
