@@ -11,6 +11,7 @@ import SwiftUI
 struct CreditCardView: View {
     @EnvironmentObject var expenseManager: ExpenseManager
     @State private var showingLogPayment = false
+    @State private var showingGroups = false
 
     private var payments: [Expense] { expenseManager.creditCardExpenses }
 
@@ -37,6 +38,13 @@ struct CreditCardView: View {
             }
             .navigationTitle("Credit Card")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showingGroups = true
+                    } label: {
+                        Image(systemName: "person.3")
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showingLogPayment = true
@@ -47,6 +55,9 @@ struct CreditCardView: View {
             }
             .sheet(isPresented: $showingLogPayment) {
                 LogCreditCardPaymentView()
+            }
+            .sheet(isPresented: $showingGroups) {
+                GroupsView()
             }
         }
     }
