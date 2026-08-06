@@ -14,8 +14,19 @@ class ExpenseManager: ObservableObject {
     @Published var expenses: [Expense] = []
     @Published var groups: [PersonGroup] = []
 
+    /// Day of month the credit-card statement closes (e.g. 20 → cycle runs the
+    /// 20th of one month up to the 20th of the next). Persisted.
+    @Published var billingCycleDay: Int = 20 {
+        didSet {
+            let clamped = min(max(billingCycleDay, 1), 28)
+            if clamped != billingCycleDay { billingCycleDay = clamped; return }
+            UserDefaults.standard.set(billingCycleDay, forKey: billingDayKey)
+        }
+    }
+
     private let expensesKey = "SavedExpenses"
     private let groupsKey = "SavedGroups"
+    private let billingDayKey = "BillingCycleDay"
 
     // Shared instance for App Intents
     static let shared = ExpenseManager()
@@ -23,6 +34,9 @@ class ExpenseManager: ObservableObject {
     init() {
         loadExpenses()
         loadGroups()
+        if let saved = UserDefaults.standard.object(forKey: billingDayKey) as? Int {
+            billingCycleDay = saved
+        }
     }
     
     func addExpense(_ expense: Expense) {
@@ -88,6 +102,62 @@ class ExpenseManager: ObservableObject {
     /// Money already recovered from others.
     var creditCardRecovered: Double {
         creditCardExpenses.reduce(0) { $0 + ($1.split?.settledTotal ?? 0) }
+    }
+
+    // MARK: - Billing Cycles
+
+    /// A statement period running from `start` (inclusive) to `end` (exclusive),
+    /// both landing on the configured billing day.
+    struct BillingCycle: Identifiable, Hashable {
+        let start: Date
+        let end: Date
+        var id: Date { start }
+    }
+
+    /// The billing cycle that contains `date`, based on `billingCycleDay`.
+    func cycle(containing date: Date) -> BillingCycle {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Kolkata") ?? .current
+        let day = min(max(billingCycleDay, 1), 28)
+
+        let startOfDay = cal.startOfDay(for: date)
+        let currentDay = cal.component(.day, from: startOfDay)
+
+        // Anchor to this month's billing day, then step back if we're before it.
+        var comps = cal.dateComponents([.year, .month], from: startOfDay)
+        comps.day = day
+        let thisMonthAnchor = cal.date(from: comps) ?? startOfDay
+        let start = currentDay >= day
+            ? thisMonthAnchor
+            : cal.date(byAdding: .month, value: -1, to: thisMonthAnchor) ?? thisMonthAnchor
+        let end = cal.date(byAdding: .month, value: 1, to: start) ?? start
+        return BillingCycle(start: start, end: end)
+    }
+
+    /// The cycle one period before/after the given one.
+    func cycle(offsetting cycle: BillingCycle, by months: Int) -> BillingCycle {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Kolkata") ?? .current
+        let ref = cal.date(byAdding: .month, value: months, to: cycle.start) ?? cycle.start
+        return self.cycle(containing: ref)
+    }
+
+    /// Credit-card payments whose date falls in the given cycle, newest first.
+    func creditCardExpenses(in cycle: BillingCycle) -> [Expense] {
+        creditCardExpenses.filter { $0.date >= cycle.start && $0.date < cycle.end }
+    }
+
+    func charged(in cycle: BillingCycle) -> Double {
+        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.totalAmount ?? 0) }
+    }
+    func myNet(in cycle: BillingCycle) -> Double {
+        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.myShare ?? 0) }
+    }
+    func outstanding(in cycle: BillingCycle) -> Double {
+        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) }
+    }
+    func recovered(in cycle: BillingCycle) -> Double {
+        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.settledTotal ?? 0) }
     }
 
     /// Toggle a single participant's settled state and persist.

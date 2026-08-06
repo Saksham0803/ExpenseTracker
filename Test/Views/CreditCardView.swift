@@ -12,25 +12,76 @@ struct CreditCardView: View {
     @EnvironmentObject var expenseManager: ExpenseManager
     @State private var showingLogPayment = false
     @State private var showingGroups = false
+    @State private var showingSettings = false
+    @State private var showAllTime = false
+    @State private var anchorDate = Date()
+    @State private var editingPayment: Expense?
 
-    private var payments: [Expense] { expenseManager.creditCardExpenses }
+    private var cycle: ExpenseManager.BillingCycle { expenseManager.cycle(containing: anchorDate) }
+
+    private var payments: [Expense] {
+        showAllTime ? expenseManager.creditCardExpenses : expenseManager.creditCardExpenses(in: cycle)
+    }
+
+    // Stats scoped to the current view (whole history or the selected cycle).
+    private var charged: Double { showAllTime ? expenseManager.creditCardCharged : expenseManager.charged(in: cycle) }
+    private var myNet: Double { showAllTime ? expenseManager.creditCardMyNet : expenseManager.myNet(in: cycle) }
+    private var outstanding: Double { showAllTime ? expenseManager.creditCardOutstanding : expenseManager.outstanding(in: cycle) }
+    private var recovered: Double { showAllTime ? expenseManager.creditCardRecovered : expenseManager.recovered(in: cycle) }
 
     var body: some View {
         NavigationView {
             Group {
-                if payments.isEmpty {
+                if expenseManager.creditCardExpenses.isEmpty {
                     emptyState
                 } else {
                     List {
                         Section {
+                            cycleHeader
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
                             statsGrid
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
                         }
 
-                        ForEach(payments) { payment in
+                        if payments.isEmpty {
                             Section {
-                                PaymentCardView(payment: payment)
+                                Text("No payments in this billing cycle.")
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.vertical, 12)
+                            }
+                        } else {
+                            ForEach(payments) { payment in
+                                Section {
+                                    PaymentCardView(payment: payment)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            Button(role: .destructive) {
+                                                expenseManager.deleteExpense(payment)
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                            Button {
+                                                editingPayment = payment
+                                            } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }
+                                            .tint(.blue)
+                                        }
+                                        .contextMenu {
+                                            Button {
+                                                editingPayment = payment
+                                            } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }
+                                            Button(role: .destructive) {
+                                                expenseManager.deleteExpense(payment)
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
+                                }
                             }
                         }
                     }
@@ -38,11 +89,16 @@ struct CreditCardView: View {
             }
             .navigationTitle("Credit Card")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button {
                         showingGroups = true
                     } label: {
                         Image(systemName: "person.3")
+                    }
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -56,21 +112,100 @@ struct CreditCardView: View {
             .sheet(isPresented: $showingLogPayment) {
                 LogCreditCardPaymentView()
             }
+            .sheet(item: $editingPayment) { payment in
+                LogCreditCardPaymentView(editing: payment)
+            }
             .sheet(isPresented: $showingGroups) {
                 GroupsView()
             }
+            .sheet(isPresented: $showingSettings) {
+                billingSettings
+            }
         }
+    }
+
+    private var cycleHeader: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Button {
+                    anchorDate = expenseManager.cycle(offsetting: cycle, by: -1).start
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(showAllTime)
+
+                Spacer()
+                VStack(spacing: 2) {
+                    Text(showAllTime ? "All time" : cycleTitle(cycle))
+                        .font(.subheadline).fontWeight(.semibold)
+                    Text(showAllTime ? "Every card payment" : "Billing cycle")
+                        .font(.caption2).foregroundColor(.secondary)
+                }
+                Spacer()
+
+                Button {
+                    anchorDate = expenseManager.cycle(offsetting: cycle, by: 1).start
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(showAllTime || cycle.start >= expenseManager.cycle(containing: Date()).start)
+            }
+
+            Button {
+                withAnimation { showAllTime.toggle() }
+                if !showAllTime { anchorDate = Date() }
+            } label: {
+                Text(showAllTime ? "View by billing cycle" : "View all time")
+                    .font(.caption)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+
+    private var billingSettings: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Billing cycle"), footer: Text("Your statement runs from this day of the month to the same day next month. For a 20-to-20 card, set 20.")) {
+                    Stepper(value: $expenseManager.billingCycleDay, in: 1...28) {
+                        HStack {
+                            Text("Statement day")
+                            Spacer()
+                            Text("\(expenseManager.billingCycleDay)")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Card Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { showingSettings = false }
+                }
+            }
+        }
+    }
+
+    private func cycleTitle(_ cycle: ExpenseManager.BillingCycle) -> String {
+        let cal = Calendar.current
+        let lastDay = cal.date(byAdding: .day, value: -1, to: cycle.end) ?? cycle.end
+        let start = DateFormatter()
+        start.dateFormat = "d MMM"
+        let end = DateFormatter()
+        end.dateFormat = "d MMM yyyy"
+        return "\(start.string(from: cycle.start)) – \(end.string(from: lastDay))"
     }
 
     private var statsGrid: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                StatTile(title: "Charged to card", value: expenseManager.creditCardCharged, color: .primary)
-                StatTile(title: "Your spending", value: expenseManager.creditCardMyNet, color: .blue)
+                StatTile(title: "Charged to card", value: charged, color: .primary)
+                StatTile(title: "Your spending", value: myNet, color: .blue)
             }
             HStack(spacing: 12) {
-                StatTile(title: "Owed to you", value: expenseManager.creditCardOutstanding, color: .orange)
-                StatTile(title: "Recovered", value: expenseManager.creditCardRecovered, color: .green)
+                StatTile(title: "Owed to you", value: outstanding, color: .orange)
+                StatTile(title: "Recovered", value: recovered, color: .green)
             }
         }
         .padding(.horizontal)

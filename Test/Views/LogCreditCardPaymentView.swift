@@ -14,14 +14,24 @@ struct LogCreditCardPaymentView: View {
 
     private struct EditableParticipant: Identifiable {
         let id = UUID()
+        /// Original SplitParticipant id, preserved when editing so settle state maps.
+        var participantID: UUID? = nil
         var name: String
         var contactIdentifier: String?
         var amountText: String = ""
         /// True once the user types an explicit amount for this person; such
         /// amounts are held fixed while the rest split the remainder equally.
         var isManual: Bool = false
+        var isSettled: Bool = false
 
         var amount: Double { Double(amountText) ?? 0 }
+    }
+
+    /// When set, the screen edits this existing payment instead of creating one.
+    let editing: Expense?
+
+    init(editing: Expense? = nil) {
+        self.editing = editing
     }
 
     @State private var title: String = ""
@@ -167,7 +177,7 @@ struct LogCreditCardPaymentView: View {
                         .lineLimit(2...4)
                 }
             }
-            .navigationTitle("Log Card Payment")
+            .navigationTitle(editing == nil ? "Log Card Payment" : "Edit Card Payment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -178,6 +188,7 @@ struct LogCreditCardPaymentView: View {
                         .disabled(!isValid)
                 }
             }
+            .onAppear(perform: prefillIfEditing)
             .onChange(of: totalText) { _ in redistribute() }
             .onChange(of: myShareIncluded) { _ in redistribute() }
             .sheet(isPresented: $showingContactPicker) {
@@ -275,6 +286,28 @@ struct LogCreditCardPaymentView: View {
         }
     }
 
+    /// Load an existing payment's values into the form for editing.
+    private func prefillIfEditing() {
+        guard let editing, let split = editing.split, participants.isEmpty, totalText.isEmpty else { return }
+        title = editing.title
+        totalText = formatAmountText(split.totalAmount)
+        selectedCategory = editing.category
+        selectedDate = editing.date
+        notes = editing.notes
+        myShareIncluded = split.myShareIncluded
+        // Saved amounts are treated as explicit so editing doesn't overwrite them.
+        participants = split.participants.map {
+            EditableParticipant(
+                participantID: $0.id,
+                name: $0.name,
+                contactIdentifier: $0.contactIdentifier,
+                amountText: formatAmountText($0.amount),
+                isManual: true,
+                isSettled: $0.isSettled
+            )
+        }
+    }
+
     private func save() {
         guard isValid else { return }
 
@@ -285,11 +318,12 @@ struct LogCreditCardPaymentView: View {
         let istDate = calendar.date(from: components) ?? selectedDate
 
         let splitParticipants = participants.map {
-            SplitParticipant(name: $0.name, contactIdentifier: $0.contactIdentifier, amount: $0.amount)
+            SplitParticipant(id: $0.participantID ?? UUID(), name: $0.name, contactIdentifier: $0.contactIdentifier, amount: $0.amount, isSettled: $0.isSettled)
         }
         let split = SplitInfo(totalAmount: total, myShareIncluded: myShareIncluded, participants: splitParticipants)
 
         let expense = Expense(
+            id: editing?.id ?? UUID(),
             title: title,
             amount: myShareIncluded ? myShare : 0,
             category: selectedCategory,
@@ -298,7 +332,11 @@ struct LogCreditCardPaymentView: View {
             notes: notes,
             split: split
         )
-        expenseManager.addExpense(expense)
+        if editing == nil {
+            expenseManager.addExpense(expense)
+        } else {
+            expenseManager.updateExpense(expense)
+        }
         dismiss()
     }
 
