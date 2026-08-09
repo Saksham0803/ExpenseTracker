@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		E381F19E2F2E037800990AAD /* ExpenseTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F18E2F2E037800990AAD /* ExpenseTrackerApp.swift */; };
-		E381F19F2F2E037800990AAD /* AddExpenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F1972F2E037800990AAD /* AddExpenseView.swift */; };
 		E381F1A02F2E037800990AAD /* TransactionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F1952F2E037800990AAD /* TransactionParser.swift */; };
 		E381F1A12F2E037800990AAD /* AddExpenseIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F18F2F2E037800990AAD /* AddExpenseIntent.swift */; };
 		E381F1A22F2E037800990AAD /* ExpenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E381F1912F2E037800990AAD /* ExpenseManager.swift */; };
@@ -55,7 +54,6 @@
 		E381F1912F2E037800990AAD /* ExpenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseManager.swift; sourceTree = "<group>"; };
 		E381F1932F2E037800990AAD /* Expense.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Expense.swift; sourceTree = "<group>"; };
 		E381F1952F2E037800990AAD /* TransactionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionParser.swift; sourceTree = "<group>"; };
-		E381F1972F2E037800990AAD /* AddExpenseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddExpenseView.swift; sourceTree = "<group>"; };
 		E381F1982F2E037800990AAD /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		E381F1992F2E037800990AAD /* ExpenseListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseListView.swift; sourceTree = "<group>"; };
 		E381F19A2F2E037800990AAD /* MessageImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageImportView.swift; sourceTree = "<group>"; };
@@ -180,7 +178,6 @@
 			isa = PBXGroup;
 			children = (
 				E381F1A92F2E12A000990AAD /* BackupView.swift */,
-				E381F1972F2E037800990AAD /* AddExpenseView.swift */,
 				E381F1982F2E037800990AAD /* ContentView.swift */,
 				E381F1992F2E037800990AAD /* ExpenseListView.swift */,
 				E381F19A2F2E037800990AAD /* MessageImportView.swift */,
@@ -340,7 +337,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				E381F19E2F2E037800990AAD /* ExpenseTrackerApp.swift in Sources */,
-				E381F19F2F2E037800990AAD /* AddExpenseView.swift in Sources */,
 				E381F1A02F2E037800990AAD /* TransactionParser.swift in Sources */,
 				E381F1A12F2E037800990AAD /* AddExpenseIntent.swift in Sources */,
 				E381F1AA2F2E12A000990AAD /* BackupView.swift in Sources */,
