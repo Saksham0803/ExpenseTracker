@@ -27,6 +27,26 @@ enum ExpenseType: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Lightweight back-reference from a derived personal row to its trip expense.
+struct TripExpenseRef: Codable, Hashable {
+    var tripID: UUID
+    var tripName: String
+}
+
+enum PaymentMethod: String, CaseIterable, Codable, Sendable {
+    case cash = "Cash"
+    case upi = "UPI"
+    case card = "Card"
+
+    var icon: String {
+        switch self {
+        case .cash: return "banknote.fill"
+        case .upi: return "indianrupeesign.circle.fill"
+        case .card: return "creditcard.fill"
+        }
+    }
+}
+
 struct Expense: Identifiable, Codable {
     let id: UUID
     var title: String
@@ -35,11 +55,17 @@ struct Expense: Identifiable, Codable {
     var type: ExpenseType
     var date: Date
     var notes: String
-    /// Present when this charge was split with other people (e.g. paid on a credit
-    /// card and recovered from friends). `amount` still holds only your own share.
+    /// Present when this charge was split with other people (paid by you and
+    /// recovered from friends). `amount` still holds only your own share.
     var split: SplitInfo?
+    /// How the payment was made. Optional for backward compatibility with data
+    /// saved before this field existed — read `method` instead.
+    var paymentMethod: PaymentMethod?
+    /// Set only on synthesized rows that mirror your share of a trip expense.
+    /// These are computed (never stored), so they never double-count.
+    var tripRef: TripExpenseRef?
 
-    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "", split: SplitInfo? = nil) {
+    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "", split: SplitInfo? = nil, paymentMethod: PaymentMethod? = nil, tripRef: TripExpenseRef? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
@@ -48,17 +74,31 @@ struct Expense: Identifiable, Codable {
         self.date = date
         self.notes = notes
         self.split = split
+        self.paymentMethod = paymentMethod
+        self.tripRef = tripRef
     }
+
+    /// True for a derived row that represents your share of a trip expense.
+    var isTripContribution: Bool { tripRef != nil }
 
     // Computed property for display amount (negative for refunds)
     var displayAmount: Double {
         type == .refund ? -amount : amount
     }
 
-    /// True when this expense was paid on the credit card and split with others.
-    var isCreditCardSplit: Bool {
+    /// Effective payment method. Legacy split records predate the field and were
+    /// always card, so fall back to card when a split exists, otherwise cash.
+    var method: PaymentMethod {
+        paymentMethod ?? (split != nil ? .card : .cash)
+    }
+
+    /// True when this expense was split with other people (any payment method).
+    var isSplit: Bool {
         split != nil
     }
+
+    /// Retained for compatibility; a split now exists on any payment method.
+    var isCreditCardSplit: Bool { isSplit }
 }
 
 enum ExpenseCategory: String, CaseIterable, Codable, Sendable {

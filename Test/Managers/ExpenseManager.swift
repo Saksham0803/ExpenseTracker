@@ -13,6 +13,7 @@ import Combine
 class ExpenseManager: ObservableObject {
     @Published var expenses: [Expense] = []
     @Published var groups: [PersonGroup] = []
+    @Published var trips: [Trip] = []
 
     /// Day of month the credit-card statement closes (e.g. 20 → cycle runs the
     /// 20th of one month up to the 20th of the next). Persisted.
@@ -27,6 +28,7 @@ class ExpenseManager: ObservableObject {
     private let expensesKey = "SavedExpenses"
     private let groupsKey = "SavedGroups"
     private let billingDayKey = "BillingCycleDay"
+    private let tripsKey = "SavedTrips"
 
     // Shared instance for App Intents
     static let shared = ExpenseManager()
@@ -34,6 +36,7 @@ class ExpenseManager: ObservableObject {
     init() {
         loadExpenses()
         loadGroups()
+        loadTrips()
         if let saved = UserDefaults.standard.object(forKey: billingDayKey) as? Int {
             billingCycleDay = saved
         }
@@ -61,48 +64,58 @@ class ExpenseManager: ObservableObject {
         saveExpenses()
     }
     
+    /// Stored expenses plus derived rows for your share of trip expenses. This is
+    /// the basis for personal totals and the Expenses/Summary views so your trip
+    /// contribution counts as spending — without ever being stored twice.
+    var allExpenses: [Expense] {
+        expenses + myTripContributions
+    }
+
     var totalExpenses: Double {
-        expenses.reduce(0) { $0 + $1.displayAmount }
+        allExpenses.reduce(0) { $0 + $1.displayAmount }
     }
-    
+
     var totalSpent: Double {
-        expenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+        allExpenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
     }
-    
+
     var totalRefunded: Double {
-        expenses.filter { $0.type == .refund }.reduce(0) { $0 + $1.amount }
+        allExpenses.filter { $0.type == .refund }.reduce(0) { $0 + $1.amount }
     }
-    
+
     func expensesForCategory(_ category: ExpenseCategory) -> [Expense] {
-        expenses.filter { $0.category == category }
+        allExpenses.filter { $0.category == category }
     }
 
-    // MARK: - Credit Card Split Tracking
+    // MARK: - Split Tracking (any payment method)
 
-    /// All expenses that were split on the credit card, newest first.
+    /// Every split expense, newest first, regardless of payment method.
+    var splitExpenses: [Expense] {
+        expenses.filter { $0.isSplit }.sorted { $0.date > $1.date }
+    }
+
+    /// Split expenses restricted to the given payment methods, newest first.
+    func splitExpenses(methods: Set<PaymentMethod>) -> [Expense] {
+        splitExpenses.filter { methods.contains($0.method) }
+    }
+
+    // Aggregate helpers over an arbitrary list of split expenses.
+    func chargedTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.totalAmount ?? 0) } }
+    func myNetTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.myShare ?? 0) } }
+    func outstandingTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) } }
+    func recoveredTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.settledTotal ?? 0) } }
+
+    // MARK: Card-only (for the Card tab + billing cycles)
+
+    /// Split expenses paid on the credit card, newest first.
     var creditCardExpenses: [Expense] {
-        expenses.filter { $0.isCreditCardSplit }.sorted { $0.date > $1.date }
+        splitExpenses(methods: [.card])
     }
 
-    /// Total amount charged to the card across all split payments.
-    var creditCardCharged: Double {
-        creditCardExpenses.reduce(0) { $0 + ($1.split?.totalAmount ?? 0) }
-    }
-
-    /// Your own net spend from card splits (your shares only).
-    var creditCardMyNet: Double {
-        creditCardExpenses.reduce(0) { $0 + ($1.split?.myShare ?? 0) }
-    }
-
-    /// Money still owed to you across all card splits.
-    var creditCardOutstanding: Double {
-        creditCardExpenses.reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) }
-    }
-
-    /// Money already recovered from others.
-    var creditCardRecovered: Double {
-        creditCardExpenses.reduce(0) { $0 + ($1.split?.settledTotal ?? 0) }
-    }
+    var creditCardCharged: Double { chargedTotal(creditCardExpenses) }
+    var creditCardMyNet: Double { myNetTotal(creditCardExpenses) }
+    var creditCardOutstanding: Double { outstandingTotal(creditCardExpenses) }
+    var creditCardRecovered: Double { recoveredTotal(creditCardExpenses) }
 
     // MARK: - Billing Cycles
 
@@ -173,16 +186,16 @@ class ExpenseManager: ObservableObject {
     }
     
     func expensesForDateRange(start: Date, end: Date) -> [Expense] {
-        expenses.filter { $0.date >= start && $0.date <= end }
+        allExpenses.filter { $0.date >= start && $0.date <= end }
     }
-    
+
     func expensesForMonth(_ date: Date) -> [Expense] {
         let calendar = Calendar.current
         let components = calendar.dateComponents([.year, .month], from: date)
-        
-        return expenses.filter { expense in
+
+        return allExpenses.filter { expense in
             let expenseComponents = calendar.dateComponents([.year, .month], from: expense.date)
-            return expenseComponents.year == components.year && 
+            return expenseComponents.year == components.year &&
                    expenseComponents.month == components.month
         }
     }
@@ -236,7 +249,80 @@ class ExpenseManager: ObservableObject {
             groups = decoded
         }
     }
-    
+
+    // MARK: - Trips
+
+    func addTrip(_ trip: Trip) {
+        trips.append(trip)
+        saveTrips()
+    }
+
+    func updateTrip(_ trip: Trip) {
+        if let index = trips.firstIndex(where: { $0.id == trip.id }) {
+            trips[index] = trip
+            saveTrips()
+        }
+    }
+
+    func deleteTrip(_ trip: Trip) {
+        trips.removeAll { $0.id == trip.id }
+        saveTrips()
+    }
+
+    /// Add/update/remove a single expense inside a trip and persist.
+    func upsertTripExpense(_ expense: TripExpense, in tripID: UUID) {
+        guard let ti = trips.firstIndex(where: { $0.id == tripID }) else { return }
+        if let ei = trips[ti].expenses.firstIndex(where: { $0.id == expense.id }) {
+            trips[ti].expenses[ei] = expense
+        } else {
+            trips[ti].expenses.append(expense)
+        }
+        saveTrips()
+    }
+
+    func deleteTripExpense(_ expenseID: UUID, in tripID: UUID) {
+        guard let ti = trips.firstIndex(where: { $0.id == tripID }) else { return }
+        trips[ti].expenses.removeAll { $0.id == expenseID }
+        saveTrips()
+    }
+
+    /// Derived personal rows for your share of every trip expense. These are not
+    /// stored — they are recomputed from trips, so trip data is never duplicated.
+    var myTripContributions: [Expense] {
+        trips.flatMap { trip -> [Expense] in
+            guard let me = trip.myMember else { return [] }
+            return trip.expenses.compactMap { te in
+                let myShare = te.share(of: me.id)
+                guard myShare > 0 else { return nil }
+                return Expense(
+                    id: te.id,
+                    title: "\(trip.name) · \(te.title)",
+                    amount: myShare,
+                    category: te.category,
+                    type: .expense,
+                    date: te.date,
+                    notes: te.notes,
+                    split: nil,
+                    paymentMethod: nil,
+                    tripRef: TripExpenseRef(tripID: trip.id, tripName: trip.name)
+                )
+            }
+        }
+    }
+
+    private func saveTrips() {
+        if let encoded = try? JSONEncoder().encode(trips) {
+            UserDefaults.standard.set(encoded, forKey: tripsKey)
+        }
+    }
+
+    private func loadTrips() {
+        if let data = UserDefaults.standard.data(forKey: tripsKey),
+           let decoded = try? JSONDecoder().decode([Trip].self, from: data) {
+            trips = decoded
+        }
+    }
+
     // MARK: - Export/Import Functions
     
     /// Export expenses as JSON data

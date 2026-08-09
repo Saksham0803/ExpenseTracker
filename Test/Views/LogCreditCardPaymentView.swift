@@ -2,13 +2,14 @@
 //  LogCreditCardPaymentView.swift
 //  Expense Tracker
 //
-//  Log a credit-card payment split with other people. Your own share flows into
-//  regular spending; everyone else's portion is tracked as owed back to you.
+//  Unified add/edit screen for any expense. Records how it was paid (Cash / UPI /
+//  Card) and, optionally, a split with other people. When split, your own share
+//  is what counts as spending; everyone else's portion is tracked as owed to you.
 //
 
 import SwiftUI
 
-struct LogCreditCardPaymentView: View {
+struct ExpenseEditorView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var expenseManager: ExpenseManager
 
@@ -27,33 +28,43 @@ struct LogCreditCardPaymentView: View {
         var amount: Double { Double(amountText) ?? 0 }
     }
 
-    /// When set, the screen edits this existing payment instead of creating one.
+    /// When set, the screen edits this existing expense instead of creating one.
     let editing: Expense?
+    private let presetMethod: PaymentMethod?
+    private let startSplitting: Bool
 
-    init(editing: Expense? = nil) {
+    init(editing: Expense? = nil, presetMethod: PaymentMethod? = nil, startSplitting: Bool = false) {
         self.editing = editing
+        self.presetMethod = presetMethod
+        self.startSplitting = startSplitting
     }
 
     @State private var title: String = ""
-    @State private var totalText: String = ""
-    @State private var selectedCategory: ExpenseCategory = .food
+    @State private var amountText: String = ""
+    @State private var selectedMethod: PaymentMethod = .cash
+    @State private var selectedCategory: ExpenseCategory = .other
+    @State private var selectedType: ExpenseType = .expense
     @State private var selectedDate: Date = Date()
     @State private var notes: String = ""
+    @State private var splitOn: Bool = false
     @State private var myShareIncluded: Bool = true
     @State private var participants: [EditableParticipant] = []
+    @State private var didPrefill = false
 
     @State private var showingContactPicker = false
     @State private var showingGroups = false
     @State private var showingSaveGroup = false
     @State private var newGroupName = ""
 
-    private var total: Double { Double(totalText) ?? 0 }
+    private var total: Double { Double(amountText) ?? 0 }
     private var participantsTotal: Double { participants.reduce(0) { $0 + $1.amount } }
     private var myShare: Double { max(0, total - participantsTotal) }
     private var unassigned: Double { total - participantsTotal }
 
     private var isValid: Bool {
         guard !title.isEmpty, total > 0 else { return false }
+        guard splitOn else { return true }
+        guard !participants.isEmpty else { return false }
         guard participants.allSatisfy({ !$0.name.isEmpty && $0.amount > 0 }) else { return false }
         guard participantsTotal <= total + 0.001 else { return false }
         // If your share isn't included, everything must be recovered from others.
@@ -64,13 +75,20 @@ struct LogCreditCardPaymentView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("Payment")) {
+                Section(header: Text("Details")) {
                     TextField("What was it for?", text: $title)
 
+                    Picker("Paid via", selection: $selectedMethod) {
+                        ForEach(PaymentMethod.allCases, id: \.self) { method in
+                            Text(method.rawValue).tag(method)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
                     HStack {
-                        Text("Total on card")
+                        Text(splitOn ? "Total paid" : "Amount")
                         Spacer()
-                        TextField("0", text: $totalText)
+                        TextField("0", text: $amountText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                     }
@@ -85,90 +103,110 @@ struct LogCreditCardPaymentView: View {
                         }
                     }
 
+                    if !splitOn {
+                        Picker("Type", selection: $selectedType) {
+                            ForEach([ExpenseType.expense, ExpenseType.refund], id: \.self) { type in
+                                HStack {
+                                    Image(systemName: type.icon)
+                                    Text(type.rawValue)
+                                }
+                                .tag(type)
+                            }
+                        }
+                    }
+
                     DatePicker("Date & Time", selection: $selectedDate, displayedComponents: [.date, .hourAndMinute])
                 }
 
-                Section(header: Text("Split with"), footer: splitFooter) {
-                    ForEach($participants) { $participant in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(participant.name)
-                                Text(participant.isManual ? "edited" : "split equally")
-                                    .font(.caption2)
-                                    .foregroundColor(participant.isManual ? .orange : .secondary)
-                            }
-                            Spacer()
-                            TextField("0", text: Binding(
-                                get: { participant.amountText },
-                                set: { newValue in
-                                    $participant.wrappedValue.amountText = newValue
-                                    $participant.wrappedValue.isManual = !newValue.isEmpty
-                                    redistribute()
-                                }
-                            ))
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 90)
-                        }
-                    }
-                    .onDelete { offsets in
-                        participants.remove(atOffsets: offsets)
-                        redistribute()
-                    }
-
-                    Button {
-                        showingContactPicker = true
-                    } label: {
-                        Label("Add from contacts", systemImage: "person.crop.circle.badge.plus")
-                    }
-
-                    Button {
-                        participants.append(EditableParticipant(name: "Person \(participants.count + 1)"))
-                        redistribute()
-                    } label: {
-                        Label("Add manually", systemImage: "plus.circle")
-                    }
-
-                    Menu {
-                        if expenseManager.groups.isEmpty {
-                            Text("No saved groups")
-                        } else {
-                            ForEach(expenseManager.groups) { group in
-                                Button {
-                                    addMembers(from: group)
-                                } label: {
-                                    Label("\(group.name) (\(group.members.count))", systemImage: "person.3.fill")
-                                }
-                            }
-                        }
-                        Divider()
-                        Button {
-                            showingGroups = true
-                        } label: {
-                            Label("Manage groups…", systemImage: "gearshape")
-                        }
-                    } label: {
-                        Label("Add from group", systemImage: "person.3")
-                    }
-
-                    if !participants.isEmpty {
-                        Button {
-                            newGroupName = ""
-                            showingSaveGroup = true
-                        } label: {
-                            Label("Save these as a group", systemImage: "square.and.arrow.down")
-                        }
-                    }
+                Section {
+                    Toggle("Split with people", isOn: $splitOn)
+                } footer: {
+                    Text("Turn on when others owe you part of this payment. Your own share stays in your spending; the rest is tracked as owed to you.")
                 }
 
-                Section {
-                    Toggle("Include my share", isOn: $myShareIncluded)
-                    if myShareIncluded {
-                        summaryRow(label: "Your share (counts as spending)", value: myShare, color: .primary)
+                if splitOn {
+                    Section(header: Text("Split with"), footer: splitFooter) {
+                        ForEach($participants) { $participant in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(participant.name)
+                                    Text(participant.isManual ? "edited" : "split equally")
+                                        .font(.caption2)
+                                        .foregroundColor(participant.isManual ? .orange : .secondary)
+                                }
+                                Spacer()
+                                TextField("0", text: Binding(
+                                    get: { participant.amountText },
+                                    set: { newValue in
+                                        $participant.wrappedValue.amountText = newValue
+                                        $participant.wrappedValue.isManual = !newValue.isEmpty
+                                        redistribute()
+                                    }
+                                ))
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 90)
+                            }
+                        }
+                        .onDelete { offsets in
+                            participants.remove(atOffsets: offsets)
+                            redistribute()
+                        }
+
+                        Button {
+                            showingContactPicker = true
+                        } label: {
+                            Label("Add from contacts", systemImage: "person.crop.circle.badge.plus")
+                        }
+
+                        Button {
+                            participants.append(EditableParticipant(name: "Person \(participants.count + 1)"))
+                            redistribute()
+                        } label: {
+                            Label("Add manually", systemImage: "plus.circle")
+                        }
+
+                        Menu {
+                            if expenseManager.groups.isEmpty {
+                                Text("No saved groups")
+                            } else {
+                                ForEach(expenseManager.groups) { group in
+                                    Button {
+                                        addMembers(from: group)
+                                    } label: {
+                                        Label("\(group.name) (\(group.members.count))", systemImage: "person.3.fill")
+                                    }
+                                }
+                            }
+                            Divider()
+                            Button {
+                                showingGroups = true
+                            } label: {
+                                Label("Manage groups…", systemImage: "gearshape")
+                            }
+                        } label: {
+                            Label("Add from group", systemImage: "person.3")
+                        }
+
+                        if !participants.isEmpty {
+                            Button {
+                                newGroupName = ""
+                                showingSaveGroup = true
+                            } label: {
+                                Label("Save these as a group", systemImage: "square.and.arrow.down")
+                            }
+                        }
                     }
-                    summaryRow(label: "Owed to you", value: participantsTotal, color: .orange)
-                    if unassigned > 0.001 && !myShareIncluded {
-                        summaryRow(label: "Unassigned — assign to people", value: unassigned, color: .red)
+
+                    Section {
+                        Toggle("Include my share", isOn: $myShareIncluded)
+                        if myShareIncluded {
+                            summaryRow(label: "Your share (counts as spending)", value: myShare, color: .primary)
+                        }
+                        summaryRow(label: "Owed to you", value: participantsTotal, color: .orange)
+                        if unassigned > 0.001 && !myShareIncluded {
+                            summaryRow(label: "Unassigned — assign to people", value: unassigned, color: .red)
+                        }
                     }
                 }
 
@@ -177,7 +215,7 @@ struct LogCreditCardPaymentView: View {
                         .lineLimit(2...4)
                 }
             }
-            .navigationTitle(editing == nil ? "Log Card Payment" : "Edit Card Payment")
+            .navigationTitle(editing == nil ? "Add Expense" : "Edit Expense")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -188,9 +226,10 @@ struct LogCreditCardPaymentView: View {
                         .disabled(!isValid)
                 }
             }
-            .onAppear(perform: prefillIfEditing)
-            .onChange(of: totalText) { _ in redistribute() }
+            .onAppear(perform: prefillIfNeeded)
+            .onChange(of: amountText) { _ in redistribute() }
             .onChange(of: myShareIncluded) { _ in redistribute() }
+            .onChange(of: splitOn) { on in if on { redistribute() } }
             .sheet(isPresented: $showingContactPicker) {
                 ContactPicker { picked in
                     participants.append(EditableParticipant(name: picked.name, contactIdentifier: picked.identifier))
@@ -230,6 +269,7 @@ struct LogCreditCardPaymentView: View {
     /// amount. People with a manually entered amount keep it; the remainder is
     /// divided evenly among the rest (and your own share, when included).
     private func redistribute() {
+        guard splitOn else { return }
         let autoIndices = participants.indices.filter { !participants[$0].isManual }
         guard !autoIndices.isEmpty else { return }
         guard total > 0 else { return }
@@ -286,52 +326,85 @@ struct LogCreditCardPaymentView: View {
         }
     }
 
-    /// Load an existing payment's values into the form for editing.
-    private func prefillIfEditing() {
-        guard let editing, let split = editing.split, participants.isEmpty, totalText.isEmpty else { return }
-        title = editing.title
-        totalText = formatAmountText(split.totalAmount)
-        selectedCategory = editing.category
-        selectedDate = editing.date
-        notes = editing.notes
-        myShareIncluded = split.myShareIncluded
-        // Saved amounts are treated as explicit so editing doesn't overwrite them.
-        participants = split.participants.map {
-            EditableParticipant(
-                participantID: $0.id,
-                name: $0.name,
-                contactIdentifier: $0.contactIdentifier,
-                amountText: formatAmountText($0.amount),
-                isManual: true,
-                isSettled: $0.isSettled
-            )
+    /// Load an existing expense's values into the form for editing (or apply presets for a new one).
+    private func prefillIfNeeded() {
+        guard !didPrefill else { return }
+        didPrefill = true
+
+        if let editing {
+            title = editing.title
+            selectedMethod = editing.method
+            selectedCategory = editing.category
+            selectedType = editing.type
+            selectedDate = editing.date
+            notes = editing.notes
+            if let split = editing.split {
+                splitOn = true
+                amountText = formatAmountText(split.totalAmount)
+                myShareIncluded = split.myShareIncluded
+                // Saved amounts are treated as explicit so editing doesn't overwrite them.
+                participants = split.participants.map {
+                    EditableParticipant(
+                        participantID: $0.id,
+                        name: $0.name,
+                        contactIdentifier: $0.contactIdentifier,
+                        amountText: formatAmountText($0.amount),
+                        isManual: true,
+                        isSettled: $0.isSettled
+                    )
+                }
+            } else {
+                amountText = formatAmountText(editing.amount)
+                // Allow converting an existing plain expense into a split.
+                if startSplitting { splitOn = true }
+                if let preset = presetMethod { selectedMethod = preset }
+            }
+        } else {
+            selectedMethod = presetMethod ?? .cash
+            splitOn = startSplitting
         }
     }
 
     private func save() {
         guard isValid else { return }
 
-        // Store date in IST, matching AddExpenseView.
+        // Store date in IST, matching the rest of the app.
         let istTimeZone = TimeZone(identifier: "Asia/Kolkata")!
         let calendar = Calendar.current
         let components = calendar.dateComponents(in: istTimeZone, from: selectedDate)
         let istDate = calendar.date(from: components) ?? selectedDate
 
-        let splitParticipants = participants.map {
-            SplitParticipant(id: $0.participantID ?? UUID(), name: $0.name, contactIdentifier: $0.contactIdentifier, amount: $0.amount, isSettled: $0.isSettled)
+        let expense: Expense
+        if splitOn && !participants.isEmpty {
+            let splitParticipants = participants.map {
+                SplitParticipant(id: $0.participantID ?? UUID(), name: $0.name, contactIdentifier: $0.contactIdentifier, amount: $0.amount, isSettled: $0.isSettled)
+            }
+            let split = SplitInfo(totalAmount: total, myShareIncluded: myShareIncluded, participants: splitParticipants)
+            expense = Expense(
+                id: editing?.id ?? UUID(),
+                title: title,
+                amount: myShareIncluded ? myShare : 0,
+                category: selectedCategory,
+                type: .expense,
+                date: istDate,
+                notes: notes,
+                split: split,
+                paymentMethod: selectedMethod
+            )
+        } else {
+            expense = Expense(
+                id: editing?.id ?? UUID(),
+                title: title,
+                amount: total,
+                category: selectedCategory,
+                type: selectedType,
+                date: istDate,
+                notes: notes,
+                split: nil,
+                paymentMethod: selectedMethod
+            )
         }
-        let split = SplitInfo(totalAmount: total, myShareIncluded: myShareIncluded, participants: splitParticipants)
 
-        let expense = Expense(
-            id: editing?.id ?? UUID(),
-            title: title,
-            amount: myShareIncluded ? myShare : 0,
-            category: selectedCategory,
-            type: .expense,
-            date: istDate,
-            notes: notes,
-            split: split
-        )
         if editing == nil {
             expenseManager.addExpense(expense)
         } else {
@@ -349,6 +422,6 @@ struct LogCreditCardPaymentView: View {
 }
 
 #Preview {
-    LogCreditCardPaymentView()
+    ExpenseEditorView()
         .environmentObject(ExpenseManager())
 }

@@ -20,7 +20,17 @@ struct ContentView: View {
             
             CreditCardView()
                 .tabItem {
-                    Label("Cards", systemImage: "creditcard.fill")
+                    Label("Card", systemImage: "creditcard.fill")
+                }
+
+            CashUpiView()
+                .tabItem {
+                    Label("UPI & Cash", systemImage: "indianrupeesign.circle.fill")
+                }
+
+            TripsView()
+                .tabItem {
+                    Label("Trips", systemImage: "suitcase.fill")
                 }
 
             SummaryView()

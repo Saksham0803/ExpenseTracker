@@ -23,6 +23,8 @@
 		F00DCAFE0000000000000004 /* ContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000003 /* ContactPicker.swift */; };
 		F00DCAFE0000000000000006 /* LogCreditCardPaymentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */; };
 		F00DCAFE0000000000000008 /* CreditCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000007 /* CreditCardView.swift */; };
+		F00DCAFE0000000000000012 /* Trip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000011 /* Trip.swift */; };
+		F00DCAFE0000000000000014 /* TripsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000013 /* TripsView.swift */; };
 		F00DCAFE000000000000000A /* PersonGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000009 /* PersonGroup.swift */; };
 		F00DCAFE000000000000000C /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000000B /* GroupsView.swift */; };
 /* End PBXBuildFile section */
@@ -64,6 +66,8 @@
 		F00DCAFE0000000000000003 /* ContactPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactPicker.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogCreditCardPaymentView.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000007 /* CreditCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreditCardView.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000011 /* Trip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trip.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000013 /* TripsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripsView.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000009 /* PersonGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonGroup.swift; sourceTree = "<group>"; };
 		F00DCAFE000000000000000B /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -159,6 +163,7 @@
 				E381F1932F2E037800990AAD /* Expense.swift */,
 				F00DCAFE0000000000000001 /* SplitInfo.swift */,
 				F00DCAFE0000000000000009 /* PersonGroup.swift */,
+				F00DCAFE0000000000000011 /* Trip.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -185,6 +190,7 @@
 				F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */,
 				F00DCAFE0000000000000007 /* CreditCardView.swift */,
 				F00DCAFE000000000000000B /* GroupsView.swift */,
+				F00DCAFE0000000000000013 /* TripsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -345,6 +351,8 @@
 				E381F1A62F2E037800990AAD /* ShortcutsSetupView.swift in Sources */,
 				E381F1A72F2E037800990AAD /* SummaryView.swift in Sources */,
 				E381F1A82F2E037800990AAD /* Expense.swift in Sources */,
+				F00DCAFE0000000000000012 /* Trip.swift in Sources */,
+				F00DCAFE0000000000000014 /* TripsView.swift in Sources */,
 				F00DCAFE0000000000000002 /* SplitInfo.swift in Sources */,
 				F00DCAFE0000000000000004 /* ContactPicker.swift in Sources */,
 				F00DCAFE0000000000000006 /* LogCreditCardPaymentView.swift in Sources */,

@@ -14,14 +14,16 @@ struct ExpenseListView: View {
     @State private var showingShortcutsSetup = false
     @State private var showingBackup = false
     @State private var selectedExpense: Expense?
+    @State private var splittingExpense: Expense?
     @State private var searchText = ""
     
     private var filteredExpenses: [Expense] {
+        let base = expenseManager.allExpenses
         if searchText.isEmpty {
-            return expenseManager.expenses.sorted { $0.date > $1.date }
+            return base.sorted { $0.date > $1.date }
         } else {
-            return expenseManager.expenses
-                .filter { $0.title.localizedCaseInsensitiveContains(searchText) || 
+            return base
+                .filter { $0.title.localizedCaseInsensitiveContains(searchText) ||
                          $0.category.rawValue.localizedCaseInsensitiveContains(searchText) }
                 .sorted { $0.date > $1.date }
         }
@@ -49,11 +51,39 @@ struct ExpenseListView: View {
                     List {
                         ForEach(filteredExpenses) { expense in
                             ExpenseRowView(expense: expense)
+                                .contentShape(Rectangle())
                                 .onTapGesture {
+                                    // Trip-contribution rows are edited inside their trip.
+                                    guard !expense.isTripContribution else { return }
                                     selectedExpense = expense
                                 }
+                                .swipeActions {
+                                    if !expense.isTripContribution {
+                                        Button(role: .destructive) {
+                                            expenseManager.deleteExpense(expense)
+                                        } label: { Label("Delete", systemImage: "trash") }
+                                    }
+                                }
+                                .contextMenu {
+                                    if !expense.isTripContribution {
+                                        Button {
+                                            selectedExpense = expense
+                                        } label: { Label("Edit", systemImage: "pencil") }
+
+                                        if expense.split == nil && expense.type == .expense {
+                                            Button {
+                                                splittingExpense = expense
+                                            } label: { Label("Split / assign method", systemImage: "person.2.badge.gearshape") }
+                                        }
+
+                                        Button(role: .destructive) {
+                                            expenseManager.deleteExpense(expense)
+                                        } label: { Label("Delete", systemImage: "trash") }
+                                    } else {
+                                        Label("Edit this in its trip", systemImage: "suitcase")
+                                    }
+                                }
                         }
-                        .onDelete(perform: deleteExpenses)
                     }
                     .listStyle(PlainListStyle())
                 }
@@ -90,7 +120,7 @@ struct ExpenseListView: View {
                 }
             }
             .sheet(isPresented: $showingAddExpense) {
-                AddExpenseView()
+                ExpenseEditorView()
             }
             .sheet(isPresented: $showingMessageImport) {
                 MessageImportView()
@@ -102,13 +132,12 @@ struct ExpenseListView: View {
                 BackupView()
             }
             .sheet(item: $selectedExpense) { expense in
-                AddExpenseView(expense: expense)
+                ExpenseEditorView(editing: expense)
+            }
+            .sheet(item: $splittingExpense) { expense in
+                ExpenseEditorView(editing: expense, startSplitting: true)
             }
         }
-    }
-    
-    private func deleteExpenses(at offsets: IndexSet) {
-        expenseManager.deleteExpense(at: offsets)
     }
 }
 
@@ -138,6 +167,15 @@ struct ExpenseRowView: View {
                         Text("(Refund)")
                             .font(.caption)
                             .foregroundColor(.green)
+                    }
+
+                    if expense.isTripContribution {
+                        Text("Trip")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                            .foregroundColor(.accentColor)
                     }
                 }
                 
