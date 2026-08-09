@@ -110,10 +110,10 @@ struct CreditCardView: View {
                 }
             }
             .sheet(isPresented: $showingLogPayment) {
-                LogCreditCardPaymentView()
+                ExpenseEditorView(presetMethod: .card, startSplitting: true)
             }
             .sheet(item: $editingPayment) { payment in
-                LogCreditCardPaymentView(editing: payment)
+                ExpenseEditorView(editing: payment)
             }
             .sheet(isPresented: $showingGroups) {
                 GroupsView()
@@ -290,7 +290,7 @@ struct PaymentCardView: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(formatCurrency(split?.totalAmount ?? payment.amount))
                         .font(.headline)
-                    Text("on card")
+                    Label(payment.method.rawValue, systemImage: payment.method.icon)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -351,5 +351,153 @@ struct PaymentCardView: View {
 
 #Preview {
     CreditCardView()
+        .environmentObject(ExpenseManager())
+}
+
+// MARK: - UPI + Cash tab
+
+/// Recovery dashboard for split expenses paid via UPI or cash (no billing cycle).
+struct CashUpiView: View {
+    @EnvironmentObject var expenseManager: ExpenseManager
+    @State private var showingAdd = false
+    @State private var editingPayment: Expense?
+    @State private var filter: MethodFilter = .all
+
+    enum MethodFilter: String, CaseIterable {
+        case all = "All"
+        case upi = "UPI"
+        case cash = "Cash"
+
+        var methods: Set<PaymentMethod> {
+            switch self {
+            case .all: return [.upi, .cash]
+            case .upi: return [.upi]
+            case .cash: return [.cash]
+            }
+        }
+    }
+
+    private var payments: [Expense] { expenseManager.splitExpenses(methods: filter.methods) }
+
+    var body: some View {
+        NavigationView {
+            Group {
+                if expenseManager.splitExpenses(methods: [.upi, .cash]).isEmpty {
+                    emptyState
+                } else {
+                    List {
+                        Section {
+                            Picker("Method", selection: $filter) {
+                                ForEach(MethodFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .listRowBackground(Color.clear)
+
+                            statsGrid
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
+                        }
+
+                        if payments.isEmpty {
+                            Section {
+                                Text("No \(filter.rawValue.lowercased()) split payments yet.")
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.vertical, 12)
+                            }
+                        } else {
+                            ForEach(payments) { payment in
+                                Section {
+                                    PaymentCardView(payment: payment)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            Button(role: .destructive) {
+                                                expenseManager.deleteExpense(payment)
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                            Button {
+                                                editingPayment = payment
+                                            } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }
+                                            .tint(.blue)
+                                        }
+                                        .contextMenu {
+                                            Button {
+                                                editingPayment = payment
+                                            } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }
+                                            Button(role: .destructive) {
+                                                expenseManager.deleteExpense(payment)
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("UPI & Cash")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showingAdd = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingAdd) {
+                ExpenseEditorView(presetMethod: filter == .cash ? .cash : .upi, startSplitting: true)
+            }
+            .sheet(item: $editingPayment) { payment in
+                ExpenseEditorView(editing: payment)
+            }
+        }
+    }
+
+    private var statsGrid: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                StatTile(title: "Total paid", value: expenseManager.chargedTotal(payments), color: .primary)
+                StatTile(title: "Your spending", value: expenseManager.myNetTotal(payments), color: .blue)
+            }
+            HStack(spacing: 12) {
+                StatTile(title: "Owed to you", value: expenseManager.outstandingTotal(payments), color: .orange)
+                StatTile(title: "Recovered", value: expenseManager.recoveredTotal(payments), color: .green)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "indianrupeesign.circle")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            Text("No UPI or cash splits yet")
+                .font(.title2)
+                .foregroundColor(.secondary)
+            Text("Tap + to log a UPI or cash payment you split with others. Your share counts as spending; the rest is tracked as owed to you.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Button {
+                showingAdd = true
+            } label: {
+                Label("Log a payment", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+#Preview("Cash & UPI") {
+    CashUpiView()
         .environmentObject(ExpenseManager())
 }
