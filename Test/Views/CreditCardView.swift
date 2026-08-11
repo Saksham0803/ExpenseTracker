@@ -385,12 +385,12 @@ struct CashUpiView: View {
         }
     }
 
-    private var payments: [Expense] { expenseManager.splitExpenses(methods: filter.methods) }
+    private var payments: [Expense] { expenseManager.expensesPaid(via: filter.methods) }
 
     var body: some View {
         NavigationView {
             Group {
-                if expenseManager.splitExpenses(methods: [.upi, .cash]).isEmpty {
+                if expenseManager.expensesPaid(via: [.upi, .cash]).isEmpty {
                     emptyState
                 } else {
                     List {
