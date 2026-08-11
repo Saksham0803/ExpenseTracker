@@ -67,8 +67,10 @@ class ExpenseManager: ObservableObject {
     /// Stored expenses plus derived rows for your share of trip expenses. This is
     /// the basis for personal totals and the Expenses/Summary views so your trip
     /// contribution counts as spending — without ever being stored twice.
+    /// Zero-contribution rows (e.g. a payment you fronted entirely for others) are
+    /// excluded here — they still appear in full in the Card / UPI & Cash tabs.
     var allExpenses: [Expense] {
-        expenses + myTripContributions
+        (expenses + myTripContributions).filter { $0.amount > 0 }
     }
 
     var totalExpenses: Double {
@@ -87,9 +89,9 @@ class ExpenseManager: ObservableObject {
         allExpenses.filter { $0.category == category }
     }
 
-    // MARK: - Split Tracking (any payment method)
+    // MARK: - Payment-method Tracking
 
-    /// Every split expense, newest first, regardless of payment method.
+    /// Every split expense, newest first (used for importing into trips).
     var splitExpenses: [Expense] {
         expenses.filter { $0.isSplit }.sorted { $0.date > $1.date }
     }
@@ -99,17 +101,24 @@ class ExpenseManager: ObservableObject {
         splitExpenses.filter { methods.contains($0.method) }
     }
 
-    // Aggregate helpers over an arbitrary list of split expenses.
-    func chargedTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.totalAmount ?? 0) } }
-    func myNetTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.myShare ?? 0) } }
+    /// ALL expenses (split or not) paid via the given methods, newest first.
+    /// The Card and UPI & Cash tabs show every transaction in full, not just splits.
+    func expensesPaid(via methods: Set<PaymentMethod>) -> [Expense] {
+        expenses.filter { methods.contains($0.method) }.sorted { $0.date > $1.date }
+    }
+
+    // Aggregate helpers over a list. Non-split expenses are entirely your own, so
+    // their full amount counts as both the total and your share.
+    func chargedTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.totalAmount ?? $1.amount) } }
+    func myNetTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.myShare ?? $1.amount) } }
     func outstandingTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) } }
     func recoveredTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.settledTotal ?? 0) } }
 
     // MARK: Card-only (for the Card tab + billing cycles)
 
-    /// Split expenses paid on the credit card, newest first.
+    /// Every card transaction (split or not), newest first.
     var creditCardExpenses: [Expense] {
-        splitExpenses(methods: [.card])
+        expensesPaid(via: [.card])
     }
 
     var creditCardCharged: Double { chargedTotal(creditCardExpenses) }
@@ -160,18 +169,10 @@ class ExpenseManager: ObservableObject {
         creditCardExpenses.filter { $0.date >= cycle.start && $0.date < cycle.end }
     }
 
-    func charged(in cycle: BillingCycle) -> Double {
-        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.totalAmount ?? 0) }
-    }
-    func myNet(in cycle: BillingCycle) -> Double {
-        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.myShare ?? 0) }
-    }
-    func outstanding(in cycle: BillingCycle) -> Double {
-        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) }
-    }
-    func recovered(in cycle: BillingCycle) -> Double {
-        creditCardExpenses(in: cycle).reduce(0) { $0 + ($1.split?.settledTotal ?? 0) }
-    }
+    func charged(in cycle: BillingCycle) -> Double { chargedTotal(creditCardExpenses(in: cycle)) }
+    func myNet(in cycle: BillingCycle) -> Double { myNetTotal(creditCardExpenses(in: cycle)) }
+    func outstanding(in cycle: BillingCycle) -> Double { outstandingTotal(creditCardExpenses(in: cycle)) }
+    func recovered(in cycle: BillingCycle) -> Double { recoveredTotal(creditCardExpenses(in: cycle)) }
 
     /// Toggle a single participant's settled state and persist.
     func setSettled(_ settled: Bool, participantID: UUID, in expense: Expense) {
