@@ -127,7 +127,7 @@ struct TripDetailView: View {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Menu {
                             Button { showingAddExpense = true } label: { Label("Add expense", systemImage: "plus") }
-                            Button { showingImport = true } label: { Label("Import from my expenses", systemImage: "square.and.arrow.down") }
+                            Button { showingImport = true } label: { Label("Import from Card / UPI & Cash", systemImage: "square.and.arrow.down") }
                             Button { showingEditTrip = true } label: { Label("Edit trip", systemImage: "pencil") }
                             Button {
                                 var t = trip; t.isClosed.toggle(); expenseManager.updateTrip(t)
@@ -582,11 +582,11 @@ struct TripImportExpensesView: View {
     let trip: Trip
     @State private var selected: Set<UUID> = []
 
-    /// Plain personal expenses (not refunds, not already split, not trip-derived).
+    /// Split payments from the Card and UPI & Cash sections — the real payments
+    /// with their full amount and participants (the Expenses tab only holds your
+    /// share, so it's the wrong source).
     private var eligible: [Expense] {
-        expenseManager.expenses
-            .filter { $0.type == .expense && $0.split == nil && !$0.isTripContribution }
-            .sorted { $0.date > $1.date }
+        expenseManager.splitExpenses
     }
 
     var body: some View {
@@ -595,14 +595,14 @@ struct TripImportExpensesView: View {
                 if eligible.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "tray").font(.system(size: 50)).foregroundColor(.gray)
-                        Text("No plain expenses to import").foregroundColor(.secondary)
-                        Text("Only simple, non-split expenses can be moved into a trip.")
+                        Text("No split payments to import").foregroundColor(.secondary)
+                        Text("Log payments in the Card or UPI & Cash tabs first, then import them here.")
                             .font(.caption).foregroundColor(.secondary)
                             .multilineTextAlignment(.center).padding(.horizontal, 40)
                     }
                 } else {
                     List {
-                        Section(footer: Text("Selected expenses move into “\(trip.name)”, split equally among all \(trip.members.count) members and paid by you. The originals are removed — only your share stays in your personal totals.")) {
+                        Section(footer: Text("Selected payments move into “\(trip.name)” with their full amount and split — you as payer, everyone owing their share. Anyone new is added as a trip member. They leave Card / UPI & Cash; your share still shows in your totals.")) {
                             ForEach(eligible) { exp in
                                 Button {
                                     if selected.contains(exp.id) { selected.remove(exp.id) } else { selected.insert(exp.id) }
@@ -612,11 +612,11 @@ struct TripImportExpensesView: View {
                                             .foregroundColor(selected.contains(exp.id) ? .accentColor : .secondary)
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(exp.title).foregroundColor(.primary)
-                                            Text("\(exp.category.rawValue) • \(exp.date, style: .date)")
+                                            Label("\(exp.method.rawValue) • \(exp.category.rawValue)", systemImage: exp.method.icon)
                                                 .font(.caption).foregroundColor(.secondary)
                                         }
                                         Spacer()
-                                        Text(money(exp.amount)).foregroundColor(.secondary)
+                                        Text(money(exp.split?.totalAmount ?? exp.amount)).foregroundColor(.secondary)
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -625,7 +625,7 @@ struct TripImportExpensesView: View {
                     }
                 }
             }
-            .navigationTitle("Import Expenses")
+            .navigationTitle("Import Payments")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
@@ -638,33 +638,51 @@ struct TripImportExpensesView: View {
     }
 
     private func importSelected() {
+        // Work on a fresh copy of the trip so multiple imports accumulate members.
+        guard var t = expenseManager.trips.first(where: { $0.id == trip.id }) else { return }
         let toImport = eligible.filter { selected.contains($0.id) }
+
         for exp in toImport {
-            let shares = equalShares(of: exp.amount, among: trip.members)
+            guard let split = exp.split else { continue }
+            let me = t.members.first { $0.isMe }
+            var shares: [TripShare] = []
+
+            // Your own share of the payment.
+            if let me, split.myShare > 0 {
+                shares.append(TripShare(memberID: me.id, amount: split.myShare))
+            }
+
+            // Each participant maps to an existing trip member, or is added as one.
+            for p in split.participants {
+                let memberID: UUID
+                if let existing = t.members.first(where: { m in
+                    if let pc = p.contactIdentifier, let mc = m.contactIdentifier { return pc == mc }
+                    return !m.isMe && m.name.caseInsensitiveCompare(p.name) == .orderedSame
+                }) {
+                    memberID = existing.id
+                } else {
+                    let newMember = TripMember(name: p.name, contactIdentifier: p.contactIdentifier)
+                    t.members.append(newMember)
+                    memberID = newMember.id
+                }
+                shares.append(TripShare(memberID: memberID, amount: p.amount))
+            }
+
             let te = TripExpense(
                 title: exp.title,
-                amount: exp.amount,
+                amount: split.totalAmount,
                 category: exp.category,
                 date: exp.date,
-                payerID: trip.myMember?.id ?? trip.members.first?.id ?? UUID(),
+                payerID: me?.id ?? t.members.first?.id ?? UUID(),
                 shares: shares,
                 notes: exp.notes
             )
-            expenseManager.upsertTripExpense(te, in: trip.id)
-            expenseManager.deleteExpense(exp)
+            t.expenses.append(te)
         }
-        dismiss()
-    }
 
-    /// Split an amount equally across members, last one absorbing the rounding residual.
-    private func equalShares(of amount: Double, among members: [TripMember]) -> [TripShare] {
-        guard !members.isEmpty else { return [] }
-        func r2(_ x: Double) -> Double { (x * 100).rounded() / 100 }
-        let per = r2(amount / Double(members.count))
-        var shares = members.map { TripShare(memberID: $0.id, amount: per) }
-        let residual = r2(amount - per * Double(members.count))
-        if let last = shares.indices.last { shares[last].amount = r2(shares[last].amount + residual) }
-        return shares
+        expenseManager.updateTrip(t)
+        for exp in toImport { expenseManager.deleteExpense(exp) }
+        dismiss()
     }
 }
 

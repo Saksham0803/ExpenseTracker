@@ -22,10 +22,10 @@
 		F00DCAFE0000000000000004 /* ContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000003 /* ContactPicker.swift */; };
 		F00DCAFE0000000000000006 /* LogCreditCardPaymentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */; };
 		F00DCAFE0000000000000008 /* CreditCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000007 /* CreditCardView.swift */; };
-		F00DCAFE0000000000000012 /* Trip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000011 /* Trip.swift */; };
-		F00DCAFE0000000000000014 /* TripsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000013 /* TripsView.swift */; };
 		F00DCAFE000000000000000A /* PersonGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000009 /* PersonGroup.swift */; };
 		F00DCAFE000000000000000C /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000000B /* GroupsView.swift */; };
+		F00DCAFE0000000000000012 /* Trip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000011 /* Trip.swift */; };
+		F00DCAFE0000000000000014 /* TripsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000013 /* TripsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,10 +64,10 @@
 		F00DCAFE0000000000000003 /* ContactPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactPicker.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000005 /* LogCreditCardPaymentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogCreditCardPaymentView.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000007 /* CreditCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreditCardView.swift; sourceTree = "<group>"; };
-		F00DCAFE0000000000000011 /* Trip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trip.swift; sourceTree = "<group>"; };
-		F00DCAFE0000000000000013 /* TripsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripsView.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000009 /* PersonGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonGroup.swift; sourceTree = "<group>"; };
 		F00DCAFE000000000000000B /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000011 /* Trip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trip.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000013 /* TripsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
