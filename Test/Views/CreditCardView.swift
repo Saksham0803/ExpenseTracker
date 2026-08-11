@@ -8,6 +8,13 @@
 
 import SwiftUI
 
+private func money(_ amount: Double) -> String {
+    let f = NumberFormatter()
+    f.numberStyle = .currency
+    f.locale = Locale.current
+    return f.string(from: NSNumber(value: amount)) ?? String(format: "%.2f", amount)
+}
+
 struct CreditCardView: View {
     @EnvironmentObject var expenseManager: ExpenseManager
     @State private var showingLogPayment = false
@@ -360,6 +367,7 @@ struct PaymentCardView: View {
 struct CashUpiView: View {
     @EnvironmentObject var expenseManager: ExpenseManager
     @State private var showingAdd = false
+    @State private var showingImport = false
     @State private var editingPayment: Expense?
     @State private var filter: MethodFilter = .all
 
@@ -442,6 +450,13 @@ struct CashUpiView: View {
             }
             .navigationTitle("UPI & Cash")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showingImport = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showingAdd = true
@@ -452,6 +467,9 @@ struct CashUpiView: View {
             }
             .sheet(isPresented: $showingAdd) {
                 ExpenseEditorView(presetMethod: filter == .cash ? .cash : .upi, startSplitting: true)
+            }
+            .sheet(isPresented: $showingImport) {
+                ImportToSplitView(presetMethod: filter == .cash ? .cash : .upi)
             }
             .sheet(item: $editingPayment) { payment in
                 ExpenseEditorView(editing: payment)
@@ -493,6 +511,74 @@ struct CashUpiView: View {
                 Label("Log a payment", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
+
+            Button {
+                showingImport = true
+            } label: {
+                Label("Import from Expenses", systemImage: "square.and.arrow.down")
+            }
+        }
+    }
+}
+
+// MARK: - Import a plain expense into a split (Card / UPI / Cash)
+
+/// Lists plain expenses and lets you convert one into a split payment — choosing
+/// the method and who splits it — so it moves into the Card / UPI & Cash section.
+struct ImportToSplitView: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var expenseManager: ExpenseManager
+    let presetMethod: PaymentMethod
+    @State private var splitting: Expense?
+
+    private var eligible: [Expense] {
+        expenseManager.expenses
+            .filter { $0.type == .expense && $0.split == nil && !$0.isTripContribution }
+            .sorted { $0.date > $1.date }
+    }
+
+    var body: some View {
+        NavigationView {
+            Group {
+                if eligible.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "tray").font(.system(size: 50)).foregroundColor(.gray)
+                        Text("Nothing to import").foregroundColor(.secondary)
+                        Text("Plain expenses you've logged will appear here to split and assign a method.")
+                            .font(.caption).foregroundColor(.secondary)
+                            .multilineTextAlignment(.center).padding(.horizontal, 40)
+                    }
+                } else {
+                    List {
+                        Section(footer: Text("Pick an expense to split it and assign a payment method. It then moves into the Card / UPI & Cash section, and your share stays in your totals.")) {
+                            ForEach(eligible) { exp in
+                                Button { splitting = exp } label: {
+                                    HStack {
+                                        Image(systemName: exp.category.icon).foregroundColor(exp.category.colorValue)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(exp.title).foregroundColor(.primary)
+                                            Text("\(exp.category.rawValue) • \(exp.date, style: .date)")
+                                                .font(.caption).foregroundColor(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(money(exp.amount)).foregroundColor(.secondary)
+                                        Image(systemName: "chevron.right").font(.caption2).foregroundColor(.secondary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Import from Expenses")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+            }
+            .sheet(item: $splitting) { exp in
+                ExpenseEditorView(editing: exp, presetMethod: presetMethod, startSplitting: true)
+            }
         }
     }
 }
