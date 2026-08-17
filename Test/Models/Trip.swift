@@ -39,8 +39,12 @@ struct TripExpense: Identifiable, Codable {
     /// Per-member shares; these sum to `amount`.
     var shares: [TripShare]
     var notes: String
+    /// Set when this row was imported from an existing Card/UPI/Cash transaction.
+    /// The original stays in its method tab, so your share is already counted
+    /// there — this link lets us avoid double-counting it in your totals.
+    var sourceExpenseID: UUID?
 
-    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, date: Date = Date(), payerID: UUID, shares: [TripShare], notes: String = "") {
+    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, date: Date = Date(), payerID: UUID, shares: [TripShare], notes: String = "", sourceExpenseID: UUID? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
@@ -49,6 +53,7 @@ struct TripExpense: Identifiable, Codable {
         self.payerID = payerID
         self.shares = shares
         self.notes = notes
+        self.sourceExpenseID = sourceExpenseID
     }
 
     func share(of memberID: UUID) -> Double {
