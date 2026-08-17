@@ -584,9 +584,14 @@ struct TripImportExpensesView: View {
 
     /// Split payments from the Card and UPI & Cash sections — the real payments
     /// with their full amount and participants (the Expenses tab only holds your
-    /// share, so it's the wrong source).
+    /// share, so it's the wrong source). Ones already pulled into this trip are
+    /// hidden so they can't be imported twice.
     private var eligible: [Expense] {
-        expenseManager.splitExpenses
+        let alreadyImported = Set(
+            (expenseManager.trips.first { $0.id == trip.id }?.expenses ?? [])
+                .compactMap { $0.sourceExpenseID }
+        )
+        return expenseManager.splitExpenses.filter { !alreadyImported.contains($0.id) }
     }
 
     var body: some View {
@@ -675,13 +680,14 @@ struct TripImportExpensesView: View {
                 date: exp.date,
                 payerID: me?.id ?? t.members.first?.id ?? UUID(),
                 shares: shares,
-                notes: exp.notes
+                notes: exp.notes,
+                sourceExpenseID: exp.id
             )
             t.expenses.append(te)
         }
 
+        // The originals stay in Card / UPI & Cash so those totals stay intact.
         expenseManager.updateTrip(t)
-        for exp in toImport { expenseManager.deleteExpense(exp) }
         dismiss()
     }
 }

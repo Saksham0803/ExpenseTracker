@@ -289,10 +289,15 @@ class ExpenseManager: ObservableObject {
 
     /// Derived personal rows for your share of every trip expense. These are not
     /// stored — they are recomputed from trips, so trip data is never duplicated.
+    /// Trip expenses imported from an existing Card/UPI/Cash transaction are
+    /// skipped while that source still exists, since your share is already
+    /// counted through the original (which stays in its method tab).
     var myTripContributions: [Expense] {
-        trips.flatMap { trip -> [Expense] in
+        let storedIDs = Set(expenses.map { $0.id })
+        return trips.flatMap { trip -> [Expense] in
             guard let me = trip.myMember else { return [] }
             return trip.expenses.compactMap { te in
+                if let src = te.sourceExpenseID, storedIDs.contains(src) { return nil }
                 let myShare = te.share(of: me.id)
                 guard myShare > 0 else { return nil }
                 return Expense(
