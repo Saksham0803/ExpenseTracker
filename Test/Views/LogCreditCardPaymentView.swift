@@ -24,6 +24,7 @@ struct ExpenseEditorView: View {
         /// amounts are held fixed while the rest split the remainder equally.
         var isManual: Bool = false
         var isSettled: Bool = false
+        var paidBack: Double? = nil
 
         var amount: Double { Double(amountText) ?? 0 }
     }
@@ -350,7 +351,8 @@ struct ExpenseEditorView: View {
                         contactIdentifier: $0.contactIdentifier,
                         amountText: formatAmountText($0.amount),
                         isManual: true,
-                        isSettled: $0.isSettled
+                        isSettled: $0.isSettled,
+                        paidBack: $0.paidBack
                     )
                 }
             } else {
@@ -377,7 +379,7 @@ struct ExpenseEditorView: View {
         let expense: Expense
         if splitOn && !participants.isEmpty {
             let splitParticipants = participants.map {
-                SplitParticipant(id: $0.participantID ?? UUID(), name: $0.name, contactIdentifier: $0.contactIdentifier, amount: $0.amount, isSettled: $0.isSettled)
+                SplitParticipant(id: $0.participantID ?? UUID(), name: $0.name, contactIdentifier: $0.contactIdentifier, amount: $0.amount, isSettled: $0.isSettled, paidBack: $0.paidBack)
             }
             let split = SplitInfo(totalAmount: total, myShareIncluded: myShareIncluded, participants: splitParticipants)
             expense = Expense(
@@ -389,7 +391,8 @@ struct ExpenseEditorView: View {
                 date: istDate,
                 notes: notes,
                 split: split,
-                paymentMethod: selectedMethod
+                paymentMethod: selectedMethod,
+                sourceKey: editing?.sourceKey
             )
         } else {
             expense = Expense(
@@ -401,8 +404,17 @@ struct ExpenseEditorView: View {
                 date: istDate,
                 notes: notes,
                 split: nil,
-                paymentMethod: selectedMethod
+                paymentMethod: selectedMethod,
+                sourceKey: editing?.sourceKey
             )
+        }
+
+        // Remember a rename / category for this payee so future imports use it.
+        if let editing, let key = editing.sourceKey,
+           expense.title != editing.title || expense.category != editing.category {
+            MerchantNamer.learn(key, name: expense.title, category: expense.category)
+            expenseManager.applyPayeeChoice(sourceKey: key, oldTitle: editing.title, newTitle: expense.title,
+                                            category: expense.category, except: editing.id)
         }
 
         if editing == nil {

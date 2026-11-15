@@ -113,6 +113,68 @@ struct AddExpenseIntent: AppIntent {
     }
 }
 
+/// Auto-capture intent: hand it a bank/UPI message (from a Shortcuts automation),
+/// it parses and logs the transaction flagged for a quick note, and nudges you.
+struct LogTransactionIntent: AppIntent {
+    static var title: LocalizedStringResource = "Log Transaction from Message"
+    static var description = IntentDescription("Reads a bank/UPI message, logs the transaction, and flags it for a quick note.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Message", description: "The transaction SMS or notification text")
+    var message: String
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let parsed = TransactionParser().parseMessage(message), parsed.amount > 0 else {
+            return .result(dialog: IntentDialog("Couldn't read a transaction amount from that message."))
+        }
+
+        // Store the date in IST, matching the rest of the app.
+        let istTimeZone = TimeZone(identifier: "Asia/Kolkata")!
+        let calendar = Calendar.current
+        let base = parsed.date ?? Date()
+        let components = calendar.dateComponents(in: istTimeZone, from: base)
+        let date = calendar.date(from: components) ?? base
+
+        let rawMerchant = parsed.merchant
+        let amount = parsed.amount
+        let parsedCategory = parsed.category ?? .other
+        let method = parsed.method
+        // Readable name + category: what you've taught the app, then known merchants.
+        let named = await MainActor.run { MerchantNamer.resolve(rawMerchant) }
+        let merchant = named.name
+
+        // Money in: park it for matching against who owes you; never counts as spending.
+        if parsed.isCredit {
+            let raw = parsed.rawMessage
+            await MainActor.run {
+                ExpenseManager.shared.addReceivedPayment(
+                    ReceivedPayment(amount: amount, sender: merchant, date: date, rawMessage: raw)
+                )
+                NotificationManager.shared.notifyReceived(sender: merchant, amount: amount)
+            }
+            return .result(dialog: IntentDialog("Received \(NotificationManager.currency(amount)) from \(merchant)."))
+        }
+
+        await MainActor.run {
+            let expense = Expense(
+                title: merchant,
+                amount: amount,
+                category: named.category ?? parsedCategory,
+                type: .expense,
+                date: date,
+                notes: "",
+                paymentMethod: method,
+                needsReview: true,
+                sourceKey: rawMerchant
+            )
+            ExpenseManager.shared.addExpense(expense)
+            NotificationManager.shared.notifyLogged(title: merchant, amount: amount)
+        }
+
+        return .result(dialog: IntentDialog("Logged \(NotificationManager.currency(amount)) at \(merchant)."))
+    }
+}
+
 // App Shortcuts Provider
 struct ExpenseTrackerShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {

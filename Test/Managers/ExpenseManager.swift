@@ -14,6 +14,8 @@ class ExpenseManager: ObservableObject {
     @Published var expenses: [Expense] = []
     @Published var groups: [PersonGroup] = []
     @Published var trips: [Trip] = []
+    /// Credits ("money received") waiting to be matched to someone's share.
+    @Published var receivedPayments: [ReceivedPayment] = []
 
     /// Day of month the credit-card statement closes (e.g. 20 → cycle runs the
     /// 20th of one month up to the 20th of the next). Persisted.
@@ -29,6 +31,7 @@ class ExpenseManager: ObservableObject {
     private let groupsKey = "SavedGroups"
     private let billingDayKey = "BillingCycleDay"
     private let tripsKey = "SavedTrips"
+    private let receivedKey = "ReceivedPayments"
 
     // Shared instance for App Intents
     static let shared = ExpenseManager()
@@ -37,6 +40,7 @@ class ExpenseManager: ObservableObject {
         loadExpenses()
         loadGroups()
         loadTrips()
+        loadReceivedPayments()
         if let saved = UserDefaults.standard.object(forKey: billingDayKey) as? Int {
             billingCycleDay = saved
         }
@@ -50,6 +54,7 @@ class ExpenseManager: ObservableObject {
     func updateExpense(_ expense: Expense) {
         if let index = expenses.firstIndex(where: { $0.id == expense.id }) {
             expenses[index] = expense
+            syncTripExpenses(from: expense)
             saveExpenses()
         }
     }
@@ -89,6 +94,188 @@ class ExpenseManager: ObservableObject {
         allExpenses.filter { $0.category == category }
     }
 
+    // MARK: - Review Inbox (auto-captured transactions)
+
+    /// Auto-captured transactions still needing a note/category, newest first.
+    var needsReviewExpenses: [Expense] {
+        expenses.filter { $0.requiresReview }.sorted { $0.date > $1.date }
+    }
+
+    /// Everything waiting in the review inbox: notes to add + money to match.
+    var needsReviewCount: Int { needsReviewExpenses.count + receivedPayments.count }
+
+    /// Clear the review flag once the user has annotated the transaction.
+    func markReviewed(_ id: UUID) {
+        guard let i = expenses.firstIndex(where: { $0.id == id }) else { return }
+        expenses[i].needsReview = false
+        saveExpenses()
+    }
+
+    // MARK: - Money Received (credits)
+
+    func addReceivedPayment(_ payment: ReceivedPayment) {
+        receivedPayments.append(payment)
+        saveReceivedPayments()
+    }
+
+    /// Open shares someone still owes you, best matches first: name and amount,
+    /// then name only, then amount only, then the rest (newest payment first).
+    func matches(for payment: ReceivedPayment) -> [ShareMatch] {
+        let senderTokens = Self.nameTokens(payment.sender)
+        let senderText = payment.sender.lowercased()
+        var result: [ShareMatch] = []
+        for expense in splitExpenses {
+            guard let split = expense.split else { continue }
+            for p in split.participants where p.remaining > 0.009 {
+                let personTokens = Self.nameTokens(p.name)
+                let nameMatches = personTokens.contains { senderText.contains($0) }
+                    || senderTokens.contains { p.name.lowercased().contains($0) }
+                result.append(ShareMatch(
+                    expenseID: expense.id,
+                    participantID: p.id,
+                    personName: p.name,
+                    expenseTitle: expense.title,
+                    remaining: p.remaining,
+                    nameMatches: nameMatches,
+                    amountMatches: abs(p.remaining - payment.amount) < 0.01
+                ))
+            }
+        }
+        func rank(_ m: ShareMatch) -> Int { (m.nameMatches ? 2 : 0) + (m.amountMatches ? 1 : 0) }
+        return result.enumerated()
+            .sorted { rank($0.element) != rank($1.element) ? rank($0.element) > rank($1.element) : $0.offset < $1.offset }
+            .map(\.element)
+    }
+
+    /// Apply a received payment to one share. A partial amount leaves the rest
+    /// owing; anything left over stays in the inbox to apply to another share.
+    func apply(_ paymentID: UUID, to participantID: UUID, in expenseID: UUID) {
+        guard let pi = receivedPayments.firstIndex(where: { $0.id == paymentID }),
+              let ei = expenses.firstIndex(where: { $0.id == expenseID }),
+              var split = expenses[ei].split,
+              let si = split.participants.firstIndex(where: { $0.id == participantID }) else { return }
+
+        let applied = min(receivedPayments[pi].amount, split.participants[si].remaining)
+        guard applied > 0 else { return }
+        split.participants[si].paidBack = split.participants[si].received + applied
+        if split.participants[si].remaining < 0.01 { split.participants[si].isSettled = true }
+        expenses[ei].split = split
+        saveExpenses()
+
+        receivedPayments[pi].amount -= applied
+        if receivedPayments[pi].amount < 0.01 { receivedPayments.remove(at: pi) }
+        saveReceivedPayments()
+    }
+
+    /// Treat an unmatched credit as a merchant refund (reduces your spending).
+    func markAsRefund(_ paymentID: UUID) {
+        guard let pi = receivedPayments.firstIndex(where: { $0.id == paymentID }) else { return }
+        let payment = receivedPayments.remove(at: pi)
+        saveReceivedPayments()
+        // Land the refund in the tab it was paid back to (e.g. "credited to your card").
+        let method = payment.method ?? TransactionParser().parseMessage(payment.rawMessage)?.method
+        addExpense(Expense(title: payment.sender, amount: payment.amount, category: .other,
+                           type: .refund, date: payment.date, notes: "", paymentMethod: method))
+    }
+
+    /// Drop a credit that isn't spending-related (salary, family transfer, …).
+    func dismissReceivedPayment(_ paymentID: UUID) {
+        receivedPayments.removeAll { $0.id == paymentID }
+        saveReceivedPayments()
+    }
+
+    /// Lower-cased name words of 3+ letters, for loose name matching.
+    private static func nameTokens(_ name: String) -> [String] {
+        name.lowercased()
+            .components(separatedBy: CharacterSet.letters.inverted)
+            .filter { $0.count >= 3 }
+    }
+
+    private func saveReceivedPayments() {
+        if let encoded = try? JSONEncoder().encode(receivedPayments) {
+            UserDefaults.standard.set(encoded, forKey: receivedKey)
+        }
+    }
+
+    private func loadReceivedPayments() {
+        if let data = UserDefaults.standard.data(forKey: receivedKey),
+           let decoded = try? JSONDecoder().decode([ReceivedPayment].self, from: data) {
+            receivedPayments = decoded
+        }
+    }
+
+    // MARK: - Statement Import
+
+    private let importedRowsKey = "ImportedStatementRows"
+
+    /// Flag rows that are already in the app — imported from a statement before,
+    /// or matching an existing transaction on the same day for the same amount
+    /// (e.g. auto-captured from SMS). Flagged rows start unticked.
+    func markDuplicates(_ rows: inout [StatementRow]) {
+        let imported = Set(UserDefaults.standard.stringArray(forKey: importedRowsKey) ?? [])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Kolkata")!
+
+        // Existing (day, amount) pairs; each can only absorb one statement row.
+        var debits = expenses.filter { $0.type == .expense }
+            .map { (calendar.startOfDay(for: $0.date), $0.split?.totalAmount ?? $0.amount) }
+        var credits = expenses.filter { $0.type == .refund }.map { (calendar.startOfDay(for: $0.date), $0.amount) }
+            + receivedPayments.map { (calendar.startOfDay(for: $0.date), $0.amount) }
+
+        for i in rows.indices {
+            let day = calendar.startOfDay(for: rows[i].date)
+            let sameTxn: ((Date, Double)) -> Bool = { $0.0 == day && abs($0.1 - rows[i].amount) < 0.01 }
+            var duplicate = imported.contains(rows[i].fingerprint)
+            if !duplicate {
+                if rows[i].isCredit, let j = credits.firstIndex(where: sameTxn) {
+                    credits.remove(at: j); duplicate = true
+                } else if !rows[i].isCredit, let j = debits.firstIndex(where: sameTxn) {
+                    debits.remove(at: j); duplicate = true
+                }
+            }
+            if duplicate {
+                rows[i].flag = .duplicate
+                rows[i].include = false
+            }
+        }
+    }
+
+    /// Log statement rows in one save: spends become expenses, credits wait in
+    /// Money received. Returns the created expenses (for the split editor).
+    @discardableResult
+    func importStatementRows(_ rows: [StatementRow]) -> [Expense] {
+        var created: [Expense] = []
+        for row in rows {
+            if row.isCredit {
+                receivedPayments.append(ReceivedPayment(amount: row.amount, sender: row.merchant, date: row.date,
+                                                        rawMessage: row.description, method: row.method))
+            } else {
+                created.append(Expense(title: row.merchant, amount: row.amount, category: row.category,
+                                       date: row.date, notes: "", paymentMethod: row.method, sourceKey: row.sourceKey))
+            }
+        }
+        expenses.append(contentsOf: created)
+        saveExpenses()
+        saveReceivedPayments()
+        let keys = (UserDefaults.standard.stringArray(forKey: importedRowsKey) ?? []) + rows.map(\.fingerprint)
+        UserDefaults.standard.set(keys, forKey: importedRowsKey)
+        return created
+    }
+
+    /// After you rename / recategorise one transaction, bring the payee's others in
+    /// line — but only where they still show the old auto name or no category, so
+    /// nothing you set by hand is overwritten. Known merchants keep their names.
+    func applyPayeeChoice(sourceKey: String, oldTitle: String, newTitle: String,
+                          category: ExpenseCategory, except id: UUID) {
+        let key = MerchantNamer.key(sourceKey)
+        let rename = !MerchantNamer.isKnown(sourceKey) && newTitle != oldTitle
+        for i in expenses.indices where expenses[i].id != id && expenses[i].sourceKey.map(MerchantNamer.key) == key {
+            if rename && expenses[i].title == oldTitle { expenses[i].title = newTitle }
+            if expenses[i].category == .other { expenses[i].category = category }
+        }
+        saveExpenses()
+    }
+
     // MARK: - Payment-method Tracking
 
     /// Every split expense, newest first (used for importing into trips).
@@ -108,9 +295,9 @@ class ExpenseManager: ObservableObject {
     }
 
     // Aggregate helpers over a list. Non-split expenses are entirely your own, so
-    // their full amount counts as both the total and your share.
-    func chargedTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.totalAmount ?? $1.amount) } }
-    func myNetTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.myShare ?? $1.amount) } }
+    // their full amount counts as both the total and your share. Refunds subtract.
+    func chargedTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.totalAmount ?? $1.displayAmount) } }
+    func myNetTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.myShare ?? $1.displayAmount) } }
     func outstandingTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) } }
     func recoveredTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.settledTotal ?? 0) } }
 
@@ -182,6 +369,8 @@ class ExpenseManager: ObservableObject {
         else { return }
 
         split.participants[pIndex].isSettled = settled
+        // Un-settling resets to fully owed, clearing any partial paybacks.
+        if !settled { split.participants[pIndex].paidBack = nil }
         expenses[eIndex].split = split
         saveExpenses()
     }
@@ -285,6 +474,126 @@ class ExpenseManager: ObservableObject {
         guard let ti = trips.firstIndex(where: { $0.id == tripID }) else { return }
         trips[ti].expenses.removeAll { $0.id == expenseID }
         saveTrips()
+    }
+
+    /// Map a split's my-share + participants onto trip members, adding anyone new.
+    private func buildShares(from split: SplitInfo, myMember me: TripMember?, members: inout [TripMember]) -> [TripShare] {
+        var shares: [TripShare] = []
+        if let me, split.myShare > 0 {
+            shares.append(TripShare(memberID: me.id, amount: split.myShare))
+        }
+        for p in split.participants {
+            let memberID: UUID
+            if let existing = members.first(where: { m in
+                if let pc = p.contactIdentifier, let mc = m.contactIdentifier { return pc == mc }
+                return !m.isMe && m.name.caseInsensitiveCompare(p.name) == .orderedSame
+            }) {
+                memberID = existing.id
+            } else {
+                let newMember = TripMember(name: p.name, contactIdentifier: p.contactIdentifier)
+                members.append(newMember)
+                memberID = newMember.id
+            }
+            shares.append(TripShare(memberID: memberID, amount: p.amount))
+        }
+        return shares
+    }
+
+    /// Import an existing split transaction into a trip by reference. The original
+    /// stays in its method tab; the trip row links back via sourceExpenseID.
+    func importExpenseIntoTrip(_ source: Expense, tripID: UUID) {
+        guard let split = source.split,
+              let ti = trips.firstIndex(where: { $0.id == tripID }) else { return }
+        // Don't import the same transaction twice.
+        if trips[ti].expenses.contains(where: { $0.sourceExpenseID == source.id }) { return }
+
+        var members = trips[ti].members
+        let me = members.first { $0.isMe }
+        let shares = buildShares(from: split, myMember: me, members: &members)
+        trips[ti].members = members
+        trips[ti].expenses.append(TripExpense(
+            title: source.title,
+            amount: split.totalAmount,
+            category: source.category,
+            date: source.date,
+            payerID: me?.id ?? members.first?.id ?? UUID(),
+            shares: shares,
+            notes: source.notes,
+            sourceExpenseID: source.id,
+            paymentMethod: source.method
+        ))
+        saveTrips()
+    }
+
+    /// Save a trip expense. When you are the payer, it is also recorded as a real
+    /// split transaction in the given payment method (default card) so it shows in
+    /// the Card / UPI & Cash tab; the two stay linked via sourceExpenseID.
+    func saveTripExpense(_ expense: TripExpense, method: PaymentMethod, in tripID: UUID) {
+        guard let ti = trips.firstIndex(where: { $0.id == tripID }) else { return }
+        var te = expense
+        let me = trips[ti].members.first { $0.isMe }
+
+        // If an existing linked transaction exists, update it in place; else create.
+        if let me, te.payerID == me.id {
+            let others = te.shares.filter { $0.memberID != me.id && $0.amount > 0 }
+            let participants: [SplitParticipant] = others.compactMap { s in
+                guard let m = trips[ti].members.first(where: { $0.id == s.memberID }) else { return nil }
+                return SplitParticipant(name: m.name, contactIdentifier: m.contactIdentifier, amount: s.amount)
+            }
+            let myShare = te.share(of: me.id)
+            let split = SplitInfo(totalAmount: te.amount, myShareIncluded: myShare > 0, participants: participants)
+
+            if let srcID = te.sourceExpenseID, let ei = expenses.firstIndex(where: { $0.id == srcID }) {
+                expenses[ei].title = te.title
+                expenses[ei].amount = myShare
+                expenses[ei].category = te.category
+                expenses[ei].date = te.date
+                expenses[ei].notes = te.notes
+                expenses[ei].split = split
+                expenses[ei].paymentMethod = method
+            } else {
+                let source = Expense(title: te.title, amount: myShare, category: te.category, type: .expense, date: te.date, notes: te.notes, split: split, paymentMethod: method)
+                expenses.append(source)
+                te.sourceExpenseID = source.id
+            }
+            te.paymentMethod = method
+            saveExpenses()
+        } else {
+            te.paymentMethod = nil
+        }
+
+        if let ei = trips[ti].expenses.firstIndex(where: { $0.id == te.id }) {
+            trips[ti].expenses[ei] = te
+        } else {
+            trips[ti].expenses.append(te)
+        }
+        saveTrips()
+    }
+
+    /// Keep imported trip rows in step with edits to their source transaction.
+    private func syncTripExpenses(from source: Expense) {
+        guard let split = source.split else { return }
+        var changed = false
+        for ti in trips.indices {
+            var members = trips[ti].members
+            let me = members.first { $0.isMe }
+            for ei in trips[ti].expenses.indices where trips[ti].expenses[ei].sourceExpenseID == source.id {
+                let shares = buildShares(from: split, myMember: me, members: &members)
+                var te = trips[ti].expenses[ei]
+                te.title = source.title
+                te.amount = split.totalAmount
+                te.category = source.category
+                te.date = source.date
+                te.payerID = me?.id ?? te.payerID
+                te.shares = shares
+                te.notes = source.notes
+                te.paymentMethod = source.method
+                trips[ti].expenses[ei] = te
+                changed = true
+            }
+            trips[ti].members = members
+        }
+        if changed { saveTrips() }
     }
 
     /// Derived personal rows for your share of every trip expense. These are not

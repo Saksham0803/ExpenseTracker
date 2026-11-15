@@ -295,8 +295,9 @@ struct PaymentCardView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(formatCurrency(split?.totalAmount ?? payment.amount))
+                    Text(formatCurrency(split?.totalAmount ?? payment.displayAmount))
                         .font(.headline)
+                        .foregroundColor(payment.type == .refund ? .green : .primary)
                     Label(payment.method.rawValue, systemImage: payment.method.icon)
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -319,14 +320,22 @@ struct PaymentCardView: View {
                         expenseManager.setSettled(!participant.isSettled, participantID: participant.id, in: payment)
                     } label: {
                         HStack {
-                            Image(systemName: participant.isSettled ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(participant.isSettled ? .green : .secondary)
+                            Image(systemName: participant.isSettled ? "checkmark.circle.fill"
+                                  : (participant.received > 0 ? "circle.lefthalf.filled" : "circle"))
+                                .foregroundColor(participant.isSettled ? .green
+                                                 : (participant.received > 0 ? .orange : .secondary))
                             Text(participant.name)
                                 .foregroundColor(.primary)
                                 .strikethrough(participant.isSettled)
                             Spacer()
-                            Text(formatCurrency(participant.amount))
-                                .foregroundColor(participant.isSettled ? .secondary : .primary)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(formatCurrency(participant.amount))
+                                    .foregroundColor(participant.isSettled ? .secondary : .primary)
+                                if !participant.isSettled && participant.received > 0 {
+                                    Text("paid \(formatCurrency(participant.received)) · owes \(formatCurrency(participant.remaining))")
+                                        .font(.caption2).foregroundColor(.orange)
+                                }
+                            }
                         }
                     }
                     .buttonStyle(.plain)

@@ -43,8 +43,11 @@ struct TripExpense: Identifiable, Codable {
     /// The original stays in its method tab, so your share is already counted
     /// there — this link lets us avoid double-counting it in your totals.
     var sourceExpenseID: UUID?
+    /// How it was paid. For imported rows the live source is preferred; this is
+    /// the stored fallback (e.g. if the source is later deleted).
+    var paymentMethod: PaymentMethod?
 
-    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, date: Date = Date(), payerID: UUID, shares: [TripShare], notes: String = "", sourceExpenseID: UUID? = nil) {
+    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, date: Date = Date(), payerID: UUID, shares: [TripShare], notes: String = "", sourceExpenseID: UUID? = nil, paymentMethod: PaymentMethod? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
@@ -54,6 +57,7 @@ struct TripExpense: Identifiable, Codable {
         self.shares = shares
         self.notes = notes
         self.sourceExpenseID = sourceExpenseID
+        self.paymentMethod = paymentMethod
     }
 
     func share(of memberID: UUID) -> Double {

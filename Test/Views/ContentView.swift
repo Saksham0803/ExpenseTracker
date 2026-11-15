@@ -9,15 +9,16 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var expenseManager: ExpenseManager
+    @StateObject private var notifications = NotificationManager.shared
     @State private var showingAddExpense = false
-    
+
     var body: some View {
         TabView {
             ExpenseListView()
                 .tabItem {
                     Label("Expenses", systemImage: "list.bullet")
                 }
-            
+
             CreditCardView()
                 .tabItem {
                     Label("Card", systemImage: "creditcard.fill")
@@ -37,6 +38,10 @@ struct ContentView: View {
                 .tabItem {
                     Label("Summary", systemImage: "chart.pie.fill")
                 }
+        }
+        .task { notifications.configure() }
+        .sheet(isPresented: $notifications.showReviewInbox) {
+            ReviewInboxView().environmentObject(expenseManager)
         }
     }
 }

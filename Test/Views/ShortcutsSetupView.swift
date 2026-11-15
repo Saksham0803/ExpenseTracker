@@ -67,9 +67,48 @@ struct ShortcutsSetupView: View {
                             .fill(Color(.systemGray6))
                     )
                     
+                    // Auto-capture (hands-off)
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Auto-Capture Transactions")
+                            .font(.headline)
+
+                        Text("Set this up once and bank/UPI messages log themselves — then the app nudges you to add a note (by voice).")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+
+                        InstructionStep(
+                            number: 1,
+                            title: "Shortcuts → Automation → New",
+                            description: "Open the Automation tab, tap '+', and choose 'Message'."
+                        )
+
+                        InstructionStep(
+                            number: 2,
+                            title: "Trigger on bank messages",
+                            description: "Set 'Message Contains' to 'debited' and choose 'Run Immediately'. Make a second automation for 'credited' so paybacks from friends are caught too."
+                        )
+
+                        InstructionStep(
+                            number: 3,
+                            title: "Add 'Log Transaction from Message'",
+                            description: "Add this Daily Expense action and pass it the 'Shortcut Input' (the message text)."
+                        )
+
+                        InstructionStep(
+                            number: 4,
+                            title: "Done",
+                            description: "Spends are logged and you get a nudge to add a note. Money you receive waits in review so you can match it to who paid you back."
+                        )
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(.systemGray6))
+                    )
+
                     // Setup Instructions
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Setup Instructions")
+                        Text("Manual Shortcut (Siri)")
                             .font(.headline)
                         
                         InstructionStep(
@@ -167,6 +206,7 @@ struct ShortcutsSetupView: View {
             }
             .navigationTitle("Shortcuts Setup")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { NotificationManager.shared.requestAuthorization() }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {

@@ -12,141 +12,103 @@ struct ParsedTransaction {
     let merchant: String
     let date: Date?
     let category: ExpenseCategory?
+    /// Payment method mentioned in the message (UPI / card), if any.
+    let method: PaymentMethod?
+    /// True when money came in (credited / received / refund) rather than went out.
+    let isCredit: Bool
     let rawMessage: String
 }
 
 class TransactionParser {
-    
-    // Common patterns for transaction messages
-    private let patterns: [(pattern: String, amountIndex: Int, merchantIndex: Int?)] = [
-        // Pattern: "You spent $50.00 at STORE NAME"
-        (pattern: #"(?:spent|paid|debited|charged|transaction)\s+(?:of\s+)?(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*)\s*(?:at|from|to|with)\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#, amountIndex: 1, merchantIndex: 2),
-        
-        // Pattern: "Payment of INR 500 to MERCHANT"
-        (pattern: #"(?:payment|transaction|purchase|expense)\s+(?:of\s+)?(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*)\s+to\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#, amountIndex: 1, merchantIndex: 2),
-        
-        // Pattern: "Debit: $25.99 at AMAZON"
-        (pattern: #"(?:debit|credit|withdrawal|deposit):\s*(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*)\s+at\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#, amountIndex: 1, merchantIndex: 2),
-        
-        // Pattern: "$50.00 charged at STORE"
-        (pattern: #"(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*)\s+(?:charged|spent|paid|debited)\s+at\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#, amountIndex: 1, merchantIndex: 2),
-        
-        // Pattern: "STORE NAME - $50.00"
-        (pattern: #"([A-Za-z0-9\s&'-]+?)\s*[-–]\s*(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*)"#, amountIndex: 2, merchantIndex: 1),
-        
-        // Pattern: "Amount: $50.00 Merchant: STORE"
-        (pattern: #"(?:amount|amt|value):\s*(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*).*?(?:merchant|vendor|store|to):\s*([A-Za-z0-9\s&'-]+)"#, amountIndex: 1, merchantIndex: 2),
-        
-        // Pattern: "INR 500.00 for MERCHANT"
-        (pattern: #"(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*)\s+for\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#, amountIndex: 1, merchantIndex: 2),
-    ]
-    
+
     func parseMessage(_ message: String) -> ParsedTransaction? {
-        let cleanedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Try each pattern
-        for patternInfo in patterns {
-            if let result = tryPattern(patternInfo.pattern, message: cleanedMessage, amountIndex: patternInfo.amountIndex, merchantIndex: patternInfo.merchantIndex) {
-                return result
-            }
-        }
-        
-        // Fallback: Try to extract amount and merchant separately
-        return tryFallbackParsing(cleanedMessage)
-    }
-    
-    private func tryPattern(_ pattern: String, message: String, amountIndex: Int, merchantIndex: Int?) -> ParsedTransaction? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .anchorsMatchLines]) else {
-            return nil
-        }
-        
-        let range = NSRange(message.startIndex..., in: message)
-        guard let match = regex.firstMatch(in: message, options: [], range: range) else {
-            return nil
-        }
-        
-        // Extract amount
-        guard let amountRange = Range(match.range(at: amountIndex), in: message),
-              let amount = extractAmount(from: String(message[amountRange])) else {
-            return nil
-        }
-        
-        // Extract merchant
-        var merchant = "Unknown"
-        if let merchantIdx = merchantIndex, merchantIdx < match.numberOfRanges {
-            if let merchantRange = Range(match.range(at: merchantIdx), in: message) {
-                merchant = String(message[merchantRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                merchant = cleanMerchantName(merchant)
-            }
-        }
-        
-        // Try to extract date
-        let date = extractDate(from: message)
-        
-        // Try to infer category from merchant name
+        let cleaned = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let amount = extractAmount(from: cleaned) else { return nil }
+
+        let credit = isCredit(cleaned)
+        // For money received, the useful name is who sent it, not a merchant.
+        let merchant = (credit ? extractSender(from: cleaned) : extractMerchant(from: cleaned)) ?? "Transaction"
+        let date = extractDate(from: cleaned)
         let category = inferCategory(from: merchant)
-        
+
         return ParsedTransaction(
             amount: amount,
             merchant: merchant,
             date: date,
             category: category,
-            rawMessage: message
+            method: inferMethod(from: cleaned),
+            isCredit: credit,
+            rawMessage: cleaned
         )
     }
-    
-    private func tryFallbackParsing(_ message: String) -> ParsedTransaction? {
-        // Look for amount patterns
-        let amountPattern = #"(?:Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+\.?\d*)"#
-        guard let amountRegex = try? NSRegularExpression(pattern: amountPattern, options: .caseInsensitive),
-              let amountMatch = amountRegex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
-              let amountRange = Range(amountMatch.range(at: 1), in: message),
-              let amount = extractAmount(from: String(message[amountRange])) else {
-            return nil
-        }
-        
-        // Try to find merchant name (look for common words before/after amount)
-        var merchant = "Transaction"
-        let merchantPatterns = [
-            #"at\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#,
-            #"to\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#,
-            #"from\s+([A-Za-z0-9\s&'-]+?)(?:\s+on|\s+at|$|\.)"#
-        ]
-        
-        for pattern in merchantPatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-               let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
-               let merchantRange = Range(match.range(at: 1), in: message) {
-                merchant = String(message[merchantRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                merchant = cleanMerchantName(merchant)
-                break
+
+    /// Money in: mentions credited/received/refund and none of the debit words.
+    private func isCredit(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        let creditWord = lower.contains("credited") || lower.contains("received") || lower.contains("refund")
+        let debitWord = lower.contains("debited") || lower.contains("spent") || lower.contains("paid to") || lower.contains("sent to")
+        return creditWord && !debitWord
+    }
+
+    /// Who the money came from: "from <name>", else the name part of a UPI VPA.
+    private func extractSender(from message: String) -> String? {
+        let stop = #"(?=\s+(?:on|via|ref|dated|txn|info|avl|bal|upi|a/c|ac|vpa|to|into)\b|[.,;:!(]|$)"#
+        if let regex = try? NSRegularExpression(pattern: "(?i)\\bfrom\\s+([A-Za-z][A-Za-z0-9&'.\\- ]*?)\(stop)"),
+           let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+           let range = Range(match.range(at: 1), in: message) {
+            let candidate = cleanMerchantName(String(message[range]))
+            let lower = candidate.lowercased()
+            if !candidate.isEmpty && !lower.hasPrefix("a/c") && !lower.hasPrefix("ac ") && !lower.hasPrefix("your") {
+                return candidate
             }
         }
-        
-        let date = extractDate(from: message)
-        let category = inferCategory(from: merchant)
-        
-        return ParsedTransaction(
-            amount: amount,
-            merchant: merchant,
-            date: date,
-            category: category,
-            rawMessage: message
-        )
+        if let regex = try? NSRegularExpression(pattern: #"([A-Za-z][A-Za-z0-9._-]*)@[A-Za-z]+"#),
+           let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+           let range = Range(match.range(at: 1), in: message) {
+            return String(message[range])
+        }
+        return nil
     }
-    
-    private func extractAmount(from string: String) -> Double? {
-        // Remove currency symbols and commas
-        let cleaned = string.replacingOccurrences(of: ",", with: "")
-            .replacingOccurrences(of: "Rs.", with: "")
-            .replacingOccurrences(of: "Rs", with: "")
-            .replacingOccurrences(of: "INR", with: "")
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: "€", with: "")
-            .replacingOccurrences(of: "£", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        
+
+    /// UPI if the message mentions UPI/VPA, card if it mentions a card; otherwise unknown.
+    private func inferMethod(from message: String) -> PaymentMethod? {
+        let lower = message.lowercased()
+        if lower.contains("upi") || lower.contains("vpa") { return .upi }
+        if lower.contains("card") { return .card }
+        return nil
+    }
+
+    /// First currency-prefixed amount in the message (handles amount before or
+    /// after the debit keyword, commas, and ₹/Rs/INR symbols).
+    private func extractAmount(from message: String) -> Double? {
+        let pattern = #"(?:Rs\.?|INR|₹|USD|\$|€|£)\s*([\d,]+(?:\.\d{1,2})?)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+              let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+              let range = Range(match.range(at: 1), in: message) else {
+            return nil
+        }
+        let cleaned = String(message[range]).replacingOccurrences(of: ",", with: "")
         return Double(cleaned)
+    }
+
+    /// Merchant/payee after "at"/"to"/"@"/"for", stopping at trailing noise
+    /// (on <date>, via UPI, Ref…, etc.).
+    private func extractMerchant(from message: String) -> String? {
+        let stop = #"(?=\s+(?:on|via|ref|dated|txn|info|avl|bal|using|through|upi|a/c|ac)\b|[.,;!]|$)"#
+        for keyword in ["at", "to", "@", "for"] {
+            let pattern = "(?i)\\b\(keyword)\\s+([A-Za-z0-9&'.\\- ]+?)\(stop)"
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+                  let range = Range(match.range(at: 1), in: message) else {
+                continue
+            }
+            let candidate = cleanMerchantName(String(message[range]))
+            let lower = candidate.lowercased()
+            // Skip account-number targets like "A/c XX1234".
+            if candidate.isEmpty || lower.hasPrefix("a/c") || lower.hasPrefix("ac ") { continue }
+            return candidate
+        }
+        return nil
     }
     
     private func cleanMerchantName(_ name: String) -> String {
@@ -190,9 +152,15 @@ class TransactionParser {
         return nil
     }
     
-    private func inferCategory(from merchant: String) -> ExpenseCategory {
+    func inferCategory(from merchant: String) -> ExpenseCategory {
         let lowerMerchant = merchant.lowercased()
-        
+
+        // Quick commerce
+        if lowerMerchant.contains("blinkit") || lowerMerchant.contains("zepto") ||
+           lowerMerchant.contains("instamart") || lowerMerchant.contains("dunzo") {
+            return .quickCommerce
+        }
+
         // Food-related keywords
         if lowerMerchant.contains("restaurant") || lowerMerchant.contains("cafe") ||
            lowerMerchant.contains("food") || lowerMerchant.contains("pizza") ||
