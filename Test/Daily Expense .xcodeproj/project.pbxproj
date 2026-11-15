@@ -26,6 +26,12 @@
 		F00DCAFE000000000000000C /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000000B /* GroupsView.swift */; };
 		F00DCAFE0000000000000012 /* Trip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000011 /* Trip.swift */; };
 		F00DCAFE0000000000000014 /* TripsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000013 /* TripsView.swift */; };
+		F00DCAFE0000000000000016 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000015 /* NotificationManager.swift */; };
+		F00DCAFE0000000000000018 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000017 /* SpeechRecognizer.swift */; };
+		F00DCAFE000000000000001A /* ReviewInboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000019 /* ReviewInboxView.swift */; };
+		F00DCAFE000000000000001C /* StatementParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000001B /* StatementParser.swift */; };
+		F00DCAFE000000000000001E /* StatementImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000001D /* StatementImportView.swift */; };
+		F00DCAFE0000000000000020 /* MerchantNamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000001F /* MerchantNamer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +74,12 @@
 		F00DCAFE000000000000000B /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000011 /* Trip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trip.swift; sourceTree = "<group>"; };
 		F00DCAFE0000000000000013 /* TripsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripsView.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000015 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000017 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000019 /* ReviewInboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewInboxView.swift; sourceTree = "<group>"; };
+		F00DCAFE000000000000001B /* StatementParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementParser.swift; sourceTree = "<group>"; };
+		F00DCAFE000000000000001D /* StatementImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementImportView.swift; sourceTree = "<group>"; };
+		F00DCAFE000000000000001F /* MerchantNamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MerchantNamer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -151,6 +163,7 @@
 			isa = PBXGroup;
 			children = (
 				E381F1912F2E037800990AAD /* ExpenseManager.swift */,
+				F00DCAFE0000000000000015 /* NotificationManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -170,6 +183,9 @@
 			isa = PBXGroup;
 			children = (
 				E381F1952F2E037800990AAD /* TransactionParser.swift */,
+				F00DCAFE0000000000000017 /* SpeechRecognizer.swift */,
+				F00DCAFE000000000000001B /* StatementParser.swift */,
+				F00DCAFE000000000000001F /* MerchantNamer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -188,6 +204,8 @@
 				F00DCAFE0000000000000007 /* CreditCardView.swift */,
 				F00DCAFE000000000000000B /* GroupsView.swift */,
 				F00DCAFE0000000000000013 /* TripsView.swift */,
+				F00DCAFE0000000000000019 /* ReviewInboxView.swift */,
+				F00DCAFE000000000000001D /* StatementImportView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -347,6 +365,12 @@
 				E381F1A62F2E037800990AAD /* ShortcutsSetupView.swift in Sources */,
 				E381F1A72F2E037800990AAD /* SummaryView.swift in Sources */,
 				E381F1A82F2E037800990AAD /* Expense.swift in Sources */,
+				F00DCAFE0000000000000016 /* NotificationManager.swift in Sources */,
+				F00DCAFE0000000000000018 /* SpeechRecognizer.swift in Sources */,
+				F00DCAFE000000000000001A /* ReviewInboxView.swift in Sources */,
+				F00DCAFE000000000000001C /* StatementParser.swift in Sources */,
+				F00DCAFE000000000000001E /* StatementImportView.swift in Sources */,
+				F00DCAFE0000000000000020 /* MerchantNamer.swift in Sources */,
 				F00DCAFE0000000000000012 /* Trip.swift in Sources */,
 				F00DCAFE0000000000000014 /* TripsView.swift in Sources */,
 				F00DCAFE0000000000000002 /* SplitInfo.swift in Sources */,
@@ -523,6 +547,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Daily Expense";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to dictate notes for your transactions.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Used to turn your spoken notes into text for transactions.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -569,6 +595,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Daily Expense";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to dictate notes for your transactions.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Used to turn your spoken notes into text for transactions.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

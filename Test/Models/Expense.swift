@@ -64,8 +64,15 @@ struct Expense: Identifiable, Codable {
     /// Set only on synthesized rows that mirror your share of a trip expense.
     /// These are computed (never stored), so they never double-count.
     var tripRef: TripExpenseRef?
+    /// True for auto-captured transactions awaiting a note/category. They count
+    /// immediately; the flag just surfaces them in the review inbox. Optional for
+    /// backward compatibility with data saved before this field existed.
+    var needsReview: Bool?
+    /// The payee as the bank/SMS wrote it ("9812345678", "ZOMATOGURGAON"), so a
+    /// rename or category you pick can be remembered for that payee.
+    var sourceKey: String?
 
-    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "", split: SplitInfo? = nil, paymentMethod: PaymentMethod? = nil, tripRef: TripExpenseRef? = nil) {
+    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "", split: SplitInfo? = nil, paymentMethod: PaymentMethod? = nil, tripRef: TripExpenseRef? = nil, needsReview: Bool? = nil, sourceKey: String? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
@@ -76,10 +83,15 @@ struct Expense: Identifiable, Codable {
         self.split = split
         self.paymentMethod = paymentMethod
         self.tripRef = tripRef
+        self.needsReview = needsReview
+        self.sourceKey = sourceKey
     }
 
     /// True for a derived row that represents your share of a trip expense.
     var isTripContribution: Bool { tripRef != nil }
+
+    /// True when this transaction still needs a note/category from the user.
+    var requiresReview: Bool { needsReview == true }
 
     // Computed property for display amount (negative for refunds)
     var displayAmount: Double {

@@ -15,6 +15,7 @@ struct ExpenseListView: View {
     @State private var showingBackup = false
     @State private var selectedExpense: Expense?
     @State private var splittingExpense: Expense?
+    @State private var showingReviewInbox = false
     @State private var searchText = ""
     
     private var filteredExpenses: [Expense] {
@@ -32,6 +33,25 @@ struct ExpenseListView: View {
     var body: some View {
         NavigationView {
             VStack {
+                if expenseManager.needsReviewCount > 0 {
+                    Button {
+                        showingReviewInbox = true
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "bell.badge.fill")
+                                .foregroundColor(.orange)
+                            Text("\(expenseManager.needsReviewCount) item\(expenseManager.needsReviewCount == 1 ? " needs" : "s need") your review")
+                                .font(.subheadline).fontWeight(.medium)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.12)))
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                    }
+                }
                 if filteredExpenses.isEmpty {
                     Spacer()
                     VStack(spacing: 16) {
@@ -130,6 +150,9 @@ struct ExpenseListView: View {
             }
             .sheet(isPresented: $showingBackup) {
                 BackupView()
+            }
+            .sheet(isPresented: $showingReviewInbox) {
+                ReviewInboxView().environmentObject(expenseManager)
             }
             .sheet(item: $selectedExpense) { expense in
                 ExpenseEditorView(editing: expense)

@@ -100,6 +100,7 @@ struct TripDetailView: View {
     @State private var showingEditTrip = false
     @State private var showingImport = false
     @State private var editingExpense: TripExpense?
+    @State private var editingSourceExpense: Expense?
 
     enum Section: String, CaseIterable { case expenses = "Expenses", balances = "Balances", settle = "Settle Up" }
 
@@ -147,6 +148,11 @@ struct TripDetailView: View {
                 .sheet(item: $editingExpense) { exp in
                     TripExpenseEditorView(trip: trip, editing: exp)
                 }
+                .sheet(item: $editingSourceExpense) { source in
+                    // Editing the real Card/UPI/Cash transaction; the trip row
+                    // re-syncs automatically when it's saved.
+                    ExpenseEditorView(editing: source)
+                }
                 .sheet(isPresented: $showingImport) {
                     TripImportExpensesView(trip: trip)
                 }
@@ -175,7 +181,10 @@ struct TripDetailView: View {
         } else {
             SwiftUI.Section {
                 ForEach(trip.expenses.sorted { $0.date > $1.date }) { exp in
-                    Button { editingExpense = exp } label: { tripExpenseRow(trip, exp) }
+                    Button {
+                        if let src = sourceExpense(for: exp) { editingSourceExpense = src }
+                        else { editingExpense = exp }
+                    } label: { tripExpenseRow(trip, exp) }
                         .buttonStyle(.plain)
                         .swipeActions {
                             Button(role: .destructive) {
@@ -187,13 +196,29 @@ struct TripDetailView: View {
         }
     }
 
+    /// The live Card/UPI/Cash transaction an imported row links to (nil for native rows).
+    private func sourceExpense(for exp: TripExpense) -> Expense? {
+        guard let id = exp.sourceExpenseID else { return nil }
+        return expenseManager.expenses.first { $0.id == id }
+    }
+
+    private func mode(for exp: TripExpense) -> PaymentMethod? {
+        sourceExpense(for: exp)?.method ?? exp.paymentMethod
+    }
+
     private func tripExpenseRow(_ trip: Trip, _ exp: TripExpense) -> some View {
         HStack {
             Image(systemName: exp.category.icon).foregroundColor(exp.category.colorValue)
             VStack(alignment: .leading, spacing: 2) {
                 Text(exp.title).font(.headline)
-                Text("Paid by \(trip.member(exp.payerID)?.name ?? "?") • \(exp.date, style: .date)")
-                    .font(.caption).foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    if let m = mode(for: exp) {
+                        Label(m.rawValue, systemImage: m.icon)
+                        Text("•")
+                    }
+                    Text("Paid by \(trip.member(exp.payerID)?.name ?? "?") • \(exp.date, style: .date)")
+                }
+                .font(.caption).foregroundColor(.secondary)
             }
             Spacer()
             Text(money(exp.amount)).font(.headline)
@@ -411,9 +436,11 @@ struct TripExpenseEditorView: View {
     @State private var selectedDate = Date()
     @State private var notes = ""
     @State private var payerID = UUID()
+    @State private var selectedMethod: PaymentMethod = .card
     @State private var rows: [EditableShare] = []
     @State private var didPrefill = false
 
+    private var payerIsMe: Bool { trip.members.first { $0.id == payerID }?.isMe ?? false }
     private var amount: Double { Double(amountText) ?? 0 }
     private var includedTotal: Double { rows.filter { $0.included }.reduce(0) { $0 + $1.amount } }
 
@@ -442,6 +469,12 @@ struct TripExpenseEditorView: View {
                         ForEach(trip.members) { m in
                             Text(m.isMe ? "You" : m.name).tag(m.id)
                         }
+                    }
+                    if payerIsMe {
+                        Picker("Paid via", selection: $selectedMethod) {
+                            ForEach(PaymentMethod.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
                     }
                     DatePicker("Date & Time", selection: $selectedDate, displayedComponents: [.date, .hourAndMinute])
                 }
@@ -534,6 +567,7 @@ struct TripExpenseEditorView: View {
             selectedDate = editing.date
             notes = editing.notes
             payerID = editing.payerID
+            selectedMethod = editing.paymentMethod ?? .card
             rows = trip.members.map { m in
                 let s = editing.share(of: m.id)
                 let included = editing.shares.contains { $0.memberID == m.id }
@@ -566,9 +600,10 @@ struct TripExpenseEditorView: View {
             date: istDate,
             payerID: payerID,
             shares: shares,
-            notes: notes
+            notes: notes,
+            sourceExpenseID: editing?.sourceExpenseID
         )
-        expenseManager.upsertTripExpense(expense, in: trip.id)
+        expenseManager.saveTripExpense(expense, method: selectedMethod, in: trip.id)
         dismiss()
     }
 }
@@ -643,51 +678,10 @@ struct TripImportExpensesView: View {
     }
 
     private func importSelected() {
-        // Work on a fresh copy of the trip so multiple imports accumulate members.
-        guard var t = expenseManager.trips.first(where: { $0.id == trip.id }) else { return }
-        let toImport = eligible.filter { selected.contains($0.id) }
-
-        for exp in toImport {
-            guard let split = exp.split else { continue }
-            let me = t.members.first { $0.isMe }
-            var shares: [TripShare] = []
-
-            // Your own share of the payment.
-            if let me, split.myShare > 0 {
-                shares.append(TripShare(memberID: me.id, amount: split.myShare))
-            }
-
-            // Each participant maps to an existing trip member, or is added as one.
-            for p in split.participants {
-                let memberID: UUID
-                if let existing = t.members.first(where: { m in
-                    if let pc = p.contactIdentifier, let mc = m.contactIdentifier { return pc == mc }
-                    return !m.isMe && m.name.caseInsensitiveCompare(p.name) == .orderedSame
-                }) {
-                    memberID = existing.id
-                } else {
-                    let newMember = TripMember(name: p.name, contactIdentifier: p.contactIdentifier)
-                    t.members.append(newMember)
-                    memberID = newMember.id
-                }
-                shares.append(TripShare(memberID: memberID, amount: p.amount))
-            }
-
-            let te = TripExpense(
-                title: exp.title,
-                amount: split.totalAmount,
-                category: exp.category,
-                date: exp.date,
-                payerID: me?.id ?? t.members.first?.id ?? UUID(),
-                shares: shares,
-                notes: exp.notes,
-                sourceExpenseID: exp.id
-            )
-            t.expenses.append(te)
+        // Import by reference — the originals stay in Card / UPI & Cash.
+        for exp in eligible.filter({ selected.contains($0.id) }) {
+            expenseManager.importExpenseIntoTrip(exp, tripID: trip.id)
         }
-
-        // The originals stay in Card / UPI & Cash so those totals stay intact.
-        expenseManager.updateTrip(t)
         dismiss()
     }
 }

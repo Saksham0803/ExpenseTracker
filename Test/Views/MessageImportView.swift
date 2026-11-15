@@ -17,7 +17,8 @@ struct MessageImportView: View {
     @State private var showSuccessAlert = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
-    
+    @State private var showingStatementImport = false
+
     private let parser = TransactionParser()
     
     init(initialMessage: String = "") {
@@ -28,6 +29,28 @@ struct MessageImportView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Past history in bulk
+                    Button {
+                        showingStatementImport = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.title2)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Import a bank or card statement")
+                                    .font(.headline)
+                                Text("Log months of past transactions at once")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.accentColor.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+
                     // Instructions
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Import Transaction Messages")
@@ -124,6 +147,9 @@ struct MessageImportView: View {
             }
             .navigationTitle("Import Messages")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showingStatementImport) {
+                StatementImportView().environmentObject(expenseManager)
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
@@ -188,46 +214,53 @@ struct MessageImportView: View {
         let istTimeZone = TimeZone(identifier: "Asia/Kolkata")!
         let transactionDate = transaction.date ?? Date()
         let calendar = Calendar.current
-        var components = calendar.dateComponents(in: istTimeZone, from: transactionDate)
+        let components = calendar.dateComponents(in: istTimeZone, from: transactionDate)
         let istDate = calendar.date(from: components) ?? transactionDate
-        
-        // Create expense from transaction
-        let expense = Expense(
-            title: transaction.merchant,
-            amount: transaction.amount,
-            category: transaction.category ?? .other,
-            type: .expense,
-            date: istDate,
-            notes: transaction.rawMessage
-        )
-        
-        // Show edit sheet
-        // This would require passing a binding, so for now we'll just add it
-        expenseManager.addExpense(expense)
+
+        record(transaction, date: istDate)
         showSuccessAlert = true
     }
-    
+
     private func addAllTransactions() {
         let istTimeZone = TimeZone(identifier: "Asia/Kolkata")!
         let calendar = Calendar.current
-        
+
         for transaction in parsedTransactions {
             // Convert date to IST timezone
             let transactionDate = transaction.date ?? Date()
-            var components = calendar.dateComponents(in: istTimeZone, from: transactionDate)
+            let components = calendar.dateComponents(in: istTimeZone, from: transactionDate)
             let istDate = calendar.date(from: components) ?? transactionDate
-            
-            let expense = Expense(
-                title: transaction.merchant,
-                amount: transaction.amount,
-                category: transaction.category ?? .other,
-                date: istDate,
-                notes: transaction.rawMessage
-            )
-            expenseManager.addExpense(expense)
+
+            record(transaction, date: istDate)
         }
-        
+
         showSuccessAlert = true
+    }
+
+    /// Debits become expenses flagged for a quick note; credits wait in the
+    /// review inbox to be matched against who owes you (never counted as spending).
+    private func record(_ transaction: ParsedTransaction, date: Date) {
+        let named = MerchantNamer.resolve(transaction.merchant)
+        if transaction.isCredit {
+            expenseManager.addReceivedPayment(ReceivedPayment(
+                amount: transaction.amount,
+                sender: named.name,
+                date: date,
+                rawMessage: transaction.rawMessage
+            ))
+            return
+        }
+        expenseManager.addExpense(Expense(
+            title: named.name,
+            amount: transaction.amount,
+            category: named.category ?? transaction.category ?? .other,
+            type: .expense,
+            date: date,
+            notes: "",
+            paymentMethod: transaction.method,
+            needsReview: true,
+            sourceKey: transaction.merchant
+        ))
     }
 }
 
@@ -240,8 +273,12 @@ struct ParsedTransactionCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(transaction.merchant)
                         .font(.headline)
-                    
-                    if let category = transaction.category {
+
+                    if transaction.isCredit {
+                        Label("Money received", systemImage: "arrow.down.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    } else if let category = transaction.category {
                         HStack {
                             Image(systemName: category.icon)
                                 .font(.caption)
@@ -254,9 +291,10 @@ struct ParsedTransactionCard: View {
                 
                 Spacer()
                 
-                Text(formatCurrency(transaction.amount))
+                Text((transaction.isCredit ? "+" : "") + formatCurrency(transaction.amount))
                     .font(.title3)
                     .fontWeight(.bold)
+                    .foregroundColor(transaction.isCredit ? .green : .primary)
             }
             
             if let date = transaction.date {
