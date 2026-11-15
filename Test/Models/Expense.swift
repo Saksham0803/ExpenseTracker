@@ -71,8 +71,13 @@ struct Expense: Identifiable, Codable {
     /// The payee as the bank/SMS wrote it ("9812345678", "ZOMATOGURGAON"), so a
     /// rename or category you pick can be remembered for that payee.
     var sourceKey: String?
+    /// Last 4 digits of the bank account / card it was paid from ("1234"), when known.
+    var account: String?
+    /// True for money sent that isn't your own spending (e.g. to family). It still
+    /// shows in the Card / UPI & Cash tabs, but not in Expenses or Summary.
+    var transfer: Bool?
 
-    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "", split: SplitInfo? = nil, paymentMethod: PaymentMethod? = nil, tripRef: TripExpenseRef? = nil, needsReview: Bool? = nil, sourceKey: String? = nil) {
+    nonisolated init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, type: ExpenseType = .expense, date: Date = Date(), notes: String = "", split: SplitInfo? = nil, paymentMethod: PaymentMethod? = nil, tripRef: TripExpenseRef? = nil, needsReview: Bool? = nil, sourceKey: String? = nil, account: String? = nil, transfer: Bool? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
@@ -85,10 +90,18 @@ struct Expense: Identifiable, Codable {
         self.tripRef = tripRef
         self.needsReview = needsReview
         self.sourceKey = sourceKey
+        self.account = account
+        self.transfer = transfer
     }
 
     /// True for a derived row that represents your share of a trip expense.
     var isTripContribution: Bool { tripRef != nil }
+
+    /// Money sent that isn't your spending (see `transfer`).
+    var isTransfer: Bool { transfer == true }
+
+    /// Where it was paid from: "UPI ••1234", or just "UPI" when the account isn't known.
+    var sourceLabel: String { account.map { "\(method.rawValue) ••\($0)" } ?? method.rawValue }
 
     /// True when this transaction still needs a note/category from the user.
     var requiresReview: Bool { needsReview == true }

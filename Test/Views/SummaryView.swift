@@ -9,97 +9,11 @@ import SwiftUI
 
 struct SummaryView: View {
     @EnvironmentObject var expenseManager: ExpenseManager
-    @State private var selectedPeriod: TimePeriod = .month
-    
-    enum TimePeriod: String, CaseIterable {
-        case today = "Today"
-        case yesterday = "Yesterday"
-        case week = "This Week"
-        case month = "This Month"
-        case year = "This Year"
-        case all = "All Time"
-        case pickMonth = "Pick Month"
-        case custom = "Custom Date"
-    }
-    
-    @State private var selectedCustomStartDate = Date()
-    @State private var selectedCustomEndDate: Date? = nil
-    @State private var selectedMonthDate = Date()
-    @State private var showingDatePicker = false
-    
-    private let calendar = Calendar.current
-    private var availableYears: [Int] {
-        let currentYear = calendar.component(.year, from: Date())
-        return (currentYear - 5...currentYear + 1).reversed()
-    }
-    private var monthBinding: Binding<Int> {
-        Binding(
-            get: { calendar.component(.month, from: selectedMonthDate) },
-            set: { newMonth in
-                let year = calendar.component(.year, from: selectedMonthDate)
-                if let d = calendar.date(from: DateComponents(year: year, month: newMonth, day: 1)) {
-                    selectedMonthDate = d
-                }
-            }
-        )
-    }
-    private var yearBinding: Binding<Int> {
-        Binding(
-            get: { calendar.component(.year, from: selectedMonthDate) },
-            set: { newYear in
-                let month = calendar.component(.month, from: selectedMonthDate)
-                if let d = calendar.date(from: DateComponents(year: newYear, month: month, day: 1)) {
-                    selectedMonthDate = d
-                }
-            }
-        )
-    }
-    
+    /// Shared with the Expenses tab, so these totals match that list exactly.
+    @Binding var filter: PeriodFilter
+
     private var filteredExpenses: [Expense] {
-        let calendar = Calendar.current
-        let now = Date()
-        
-        switch selectedPeriod {
-        case .today:
-            let startOfDay = calendar.startOfDay(for: now)
-            let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
-            return expenseManager.expensesForDateRange(start: startOfDay, end: endOfDay)
-            
-        case .yesterday:
-            let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
-            let startOfDay = calendar.startOfDay(for: yesterday)
-            let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
-            return expenseManager.expensesForDateRange(start: startOfDay, end: endOfDay)
-            
-        case .week:
-            let startOfWeek = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
-            return expenseManager.expensesForDateRange(start: startOfWeek, end: now)
-            
-        case .month:
-            return expenseManager.expensesForMonth(now)
-            
-        case .year:
-            let startOfYear = calendar.date(from: calendar.dateComponents([.year], from: now))!
-            return expenseManager.expensesForDateRange(start: startOfYear, end: now)
-            
-        case .pickMonth:
-            return expenseManager.expensesForMonth(selectedMonthDate)
-            
-        case .custom:
-            let startDay = calendar.startOfDay(for: selectedCustomStartDate)
-            if let end = selectedCustomEndDate {
-                let endDayStart = calendar.startOfDay(for: end)
-                let (first, last) = startDay < endDayStart ? (startDay, endDayStart) : (endDayStart, startDay)
-                let endOfLast = calendar.date(byAdding: .day, value: 1, to: last)!
-                return expenseManager.expensesForDateRange(start: first, end: endOfLast)
-            } else {
-                let endOfStart = calendar.date(byAdding: .day, value: 1, to: startDay)!
-                return expenseManager.expensesForDateRange(start: startDay, end: endOfStart)
-            }
-            
-        case .all:
-            return expenseManager.expenses
-        }
+        filter.apply(expenseManager.allExpenses)
     }
     
     private var totalAmount: Double {
@@ -173,114 +87,7 @@ struct SummaryView: View {
                             .fill(Color(.systemGray6))
                     )
                     
-                    // Period Picker - Dropdown Menu
-                    VStack(spacing: 12) {
-                        Menu {
-                            ForEach(TimePeriod.allCases, id: \.self) { period in
-                                Button(action: {
-                                    selectedPeriod = period
-                                }) {
-                                    HStack {
-                                        Text(period.rawValue)
-                                        if selectedPeriod == period {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack {
-                                Text("Period: \(selectedPeriod.rawValue)")
-                                    .font(.body)
-                                Spacer()
-                                Image(systemName: "chevron.down")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(.systemGray6))
-                            )
-                        }
-                        
-                        // Month + Year Picker (shown when Pick Month is selected)
-                        if selectedPeriod == .pickMonth {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Select Month")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                HStack(spacing: 16) {
-                                    Picker("Month", selection: monthBinding) {
-                                        ForEach(1...12, id: \.self) { month in
-                                            Text(monthName(for: month)).tag(month)
-                                        }
-                                    }
-                                    .pickerStyle(.menu)
-                                    Picker("Year", selection: yearBinding) {
-                                        ForEach(availableYears, id: \.self) { year in
-                                            Text(String(year)).tag(year)
-                                        }
-                                    }
-                                    .pickerStyle(.menu)
-                                }
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(.systemGray6))
-                            )
-                        }
-                        
-                        // Custom Date: From + optional To (shown when Custom Date is selected)
-                        if selectedPeriod == .custom {
-                            VStack(alignment: .leading, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("From Date")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                    DatePicker("", selection: $selectedCustomStartDate, displayedComponents: .date)
-                                        .datePickerStyle(.compact)
-                                        .onChange(of: selectedCustomStartDate, perform: { _ in
-                                            selectedCustomEndDate = nil
-                                        })
-                                }
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Text("To Date (optional)")
-                                            .font(.subheadline)
-                                            .foregroundColor(.secondary)
-                                        if selectedCustomEndDate != nil {
-                                            Button("Clear") {
-                                                selectedCustomEndDate = nil
-                                            }
-                                            .font(.caption)
-                                        }
-                                    }
-                                    if let _ = selectedCustomEndDate {
-                                        DatePicker("", selection: Binding(
-                                            get: { selectedCustomEndDate ?? selectedCustomStartDate },
-                                            set: { selectedCustomEndDate = $0 }
-                                        ), displayedComponents: .date)
-                                            .datePickerStyle(.compact)
-                                    } else {
-                                        Button(action: {
-                                            selectedCustomEndDate = selectedCustomStartDate
-                                        }) {
-                                            Text("Add end date for range")
-                                                .font(.subheadline)
-                                                .foregroundColor(.accentColor)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(.systemGray6))
-                            )
-                        }
-                    }
+                    PeriodFilterBar(filter: $filter, accounts: expenseManager.accounts(in: expenseManager.allExpenses))
                     
                     // Category Breakdown
                     if !categoryBreakdown.isEmpty {
@@ -349,15 +156,6 @@ struct SummaryView: View {
         formatter.numberStyle = .currency
         formatter.locale = Locale.current
         return formatter.string(from: NSNumber(value: amount)) ?? "$\(String(format: "%.2f", amount))"
-    }
-    
-    private func monthName(for month: Int) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM"
-        formatter.locale = Locale.current
-        guard let date = calendar.date(from: DateComponents(month: month, day: 1)),
-              (1...12).contains(month) else { return "" }
-        return formatter.string(from: date)
     }
 }
 
@@ -605,6 +403,6 @@ struct CategoryExpenseRowView: View {
 }
 
 #Preview {
-    SummaryView()
+    SummaryView(filter: .constant(PeriodFilter()))
         .environmentObject(ExpenseManager())
 }

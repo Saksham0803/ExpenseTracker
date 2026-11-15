@@ -32,6 +32,7 @@
 		F00DCAFE000000000000001C /* StatementParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000001B /* StatementParser.swift */; };
 		F00DCAFE000000000000001E /* StatementImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000001D /* StatementImportView.swift */; };
 		F00DCAFE0000000000000020 /* MerchantNamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE000000000000001F /* MerchantNamer.swift */; };
+		F00DCAFE0000000000000022 /* PeriodFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DCAFE0000000000000021 /* PeriodFilter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -80,6 +81,7 @@
 		F00DCAFE000000000000001B /* StatementParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementParser.swift; sourceTree = "<group>"; };
 		F00DCAFE000000000000001D /* StatementImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementImportView.swift; sourceTree = "<group>"; };
 		F00DCAFE000000000000001F /* MerchantNamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MerchantNamer.swift; sourceTree = "<group>"; };
+		F00DCAFE0000000000000021 /* PeriodFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeriodFilter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -206,6 +208,7 @@
 				F00DCAFE0000000000000013 /* TripsView.swift */,
 				F00DCAFE0000000000000019 /* ReviewInboxView.swift */,
 				F00DCAFE000000000000001D /* StatementImportView.swift */,
+				F00DCAFE0000000000000021 /* PeriodFilter.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -371,6 +374,7 @@
 				F00DCAFE000000000000001C /* StatementParser.swift in Sources */,
 				F00DCAFE000000000000001E /* StatementImportView.swift in Sources */,
 				F00DCAFE0000000000000020 /* MerchantNamer.swift in Sources */,
+				F00DCAFE0000000000000022 /* PeriodFilter.swift in Sources */,
 				F00DCAFE0000000000000012 /* Trip.swift in Sources */,
 				F00DCAFE0000000000000014 /* TripsView.swift in Sources */,
 				F00DCAFE0000000000000002 /* SplitInfo.swift in Sources */,

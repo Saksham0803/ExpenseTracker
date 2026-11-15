@@ -47,6 +47,8 @@ struct ExpenseEditorView: View {
     @State private var selectedType: ExpenseType = .expense
     @State private var selectedDate: Date = Date()
     @State private var notes: String = ""
+    @State private var account: String = ""
+    @State private var notSpending: Bool = false
     @State private var splitOn: Bool = false
     @State private var myShareIncluded: Bool = true
     @State private var participants: [EditableParticipant] = []
@@ -86,6 +88,16 @@ struct ExpenseEditorView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    if selectedMethod != .cash {
+                        HStack {
+                            Text(selectedMethod == .card ? "Card" : "Account")
+                            Spacer()
+                            TextField("Last 4 digits", text: $account)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+
                     HStack {
                         Text(splitOn ? "Total paid" : "Amount")
                         Spacer()
@@ -117,6 +129,14 @@ struct ExpenseEditorView: View {
                     }
 
                     DatePicker("Date & Time", selection: $selectedDate, displayedComponents: [.date, .hourAndMinute])
+                }
+
+                if !splitOn && selectedType == .expense {
+                    Section {
+                        Toggle("Not my spending", isOn: $notSpending)
+                    } footer: {
+                        Text("For money you send that isn't your own spending, like to family. It still shows in the Card / UPI & Cash tab, but not in Expenses or Summary.")
+                    }
                 }
 
                 Section {
@@ -339,6 +359,8 @@ struct ExpenseEditorView: View {
             selectedType = editing.type
             selectedDate = editing.date
             notes = editing.notes
+            account = editing.account ?? ""
+            notSpending = editing.isTransfer
             if let split = editing.split {
                 splitOn = true
                 amountText = formatAmountText(split.totalAmount)
@@ -376,6 +398,10 @@ struct ExpenseEditorView: View {
         let components = calendar.dateComponents(in: istTimeZone, from: selectedDate)
         let istDate = calendar.date(from: components) ?? selectedDate
 
+        let digits = String(account.filter(\.isNumber).suffix(4))
+        let savedAccount = selectedMethod == .cash || digits.isEmpty ? nil : digits
+        let transfer: Bool? = !splitOn && selectedType == .expense && notSpending ? true : nil
+
         let expense: Expense
         if splitOn && !participants.isEmpty {
             let splitParticipants = participants.map {
@@ -392,7 +418,8 @@ struct ExpenseEditorView: View {
                 notes: notes,
                 split: split,
                 paymentMethod: selectedMethod,
-                sourceKey: editing?.sourceKey
+                sourceKey: editing?.sourceKey,
+                account: savedAccount
             )
         } else {
             expense = Expense(
@@ -405,16 +432,22 @@ struct ExpenseEditorView: View {
                 notes: notes,
                 split: nil,
                 paymentMethod: selectedMethod,
-                sourceKey: editing?.sourceKey
+                sourceKey: editing?.sourceKey,
+                account: savedAccount,
+                transfer: transfer
             )
         }
 
-        // Remember a rename / category for this payee so future imports use it.
+        // Remember a rename / category / "not my spending" for this payee so its
+        // other and future transactions follow.
+        let transferChanged = expense.isTransfer != (editing?.isTransfer ?? false)
         if let editing, let key = editing.sourceKey,
-           expense.title != editing.title || expense.category != editing.category {
-            MerchantNamer.learn(key, name: expense.title, category: expense.category)
+           expense.title != editing.title || expense.category != editing.category || transferChanged {
+            MerchantNamer.learn(key, name: expense.title, category: expense.category,
+                                notSpending: transferChanged ? expense.isTransfer : nil)
             expenseManager.applyPayeeChoice(sourceKey: key, oldTitle: editing.title, newTitle: expense.title,
-                                            category: expense.category, except: editing.id)
+                                            category: expense.category, transfer: transferChanged ? expense.isTransfer : nil,
+                                            except: editing.id)
         }
 
         if editing == nil {

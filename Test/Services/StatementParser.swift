@@ -31,6 +31,10 @@ struct StatementRow: Identifiable {
     var method: PaymentMethod
     var flag: Flag?
     var include = true
+    /// Last 4 digits of the statement's account / card, when the header shows it.
+    var account: String?
+    /// You've said money sent to this payee isn't your spending (e.g. family).
+    var notSpending = false
 
     /// Stable key so the same statement line is never imported twice.
     var fingerprint: String {
@@ -69,6 +73,8 @@ final class StatementParser {
     private let ist = TimeZone(identifier: "Asia/Kolkata")!
     /// Account holder's name words from the statement header, to spot transfers to your own accounts.
     private var holder: [String]?
+    /// Last 4 digits of the statement's account / card number.
+    private var account: String?
 
     func parse(url: URL, source: StatementSource, password: String? = nil) throws -> [StatementRow] {
         let raw: [RawTxn]
@@ -135,7 +141,9 @@ final class StatementParser {
             category: named.category ?? TransactionParser().inferCategory(from: raw),   // not the narration: "@ptaxis" isn't a taxi
             method: method,
             flag: billPayment ? .cardBillPayment : ownAccount ? .selfTransfer : nil,
-            include: !billPayment && !ownAccount
+            include: !billPayment && !ownAccount,
+            account: account,
+            notSpending: !credit && MerchantNamer.notSpending(raw) == true
         )
     }
 
@@ -170,6 +178,23 @@ final class StatementParser {
             } else if line.range(of: #"^(MR|MRS|MS|MISS)\.?\s+[A-Za-z]"#, options: [.regularExpression, .caseInsensitive]) != nil {
                 let words = nameWords(line)
                 if words.count >= 2 { return Array(words.prefix(2)) }
+            }
+        }
+        return nil
+    }
+
+    /// Last 4 digits of the account / card number, from header lines like
+    /// "Account No : 50100123456789" or "Card No. 4375 XXXX XXXX 1234", or the
+    /// value on the line below the label.
+    private func accountNumber(in lines: [String]) -> String? {
+        let label = #"(?i)\b(?:account|a/c|acct|card)\s*(?:no\.?|number|num)\b"#
+        let value = #"(?<![\w/])[0-9Xx*•][0-9Xx*• ]{3,24}[0-9]{4}(?![\w/])"#
+        for (i, line) in lines.prefix(80).enumerated() {
+            guard let found = line.range(of: label, options: .regularExpression) else { continue }
+            for text in [String(line[found.upperBound...])] + lines.dropFirst(i + 1).prefix(1) {
+                if let match = text.range(of: value, options: .regularExpression) {
+                    return String(text[match].filter(\.isNumber).suffix(4))
+                }
             }
         }
         return nil
@@ -235,6 +260,7 @@ final class StatementParser {
     private func parseCSV(_ text: String, source: StatementSource) -> [RawTxn] {
         let lines = text.components(separatedBy: .newlines)
         holder = holderName(in: lines.map { $0.replacingOccurrences(of: ",", with: " ") })
+        account = accountNumber(in: lines.map { $0.replacingOccurrences(of: ",", with: " ") })
         let sample = lines.prefix(40).joined()
         let delimiter: Character = sample.filter { $0 == "\t" }.count > sample.filter { $0 == "," }.count ? "\t" : ","
         let rows = lines.map { splitCSVLine($0, delimiter: delimiter) }
@@ -315,6 +341,7 @@ final class StatementParser {
     private func parsePDF(_ doc: PDFDocument, source: StatementSource) -> [RawTxn] {
         let lines = (0..<doc.pageCount).compactMap { doc.page(at: $0) }.flatMap(visualLines)
         holder = holderName(in: lines)
+        account = accountNumber(in: lines)
 
         var openingBalance: Double?
         if let line = lines.first(where: { $0.lowercased().contains("opening balance") }) {

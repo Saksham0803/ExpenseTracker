@@ -72,10 +72,16 @@ class ExpenseManager: ObservableObject {
     /// Stored expenses plus derived rows for your share of trip expenses. This is
     /// the basis for personal totals and the Expenses/Summary views so your trip
     /// contribution counts as spending — without ever being stored twice.
-    /// Zero-contribution rows (e.g. a payment you fronted entirely for others) are
-    /// excluded here — they still appear in full in the Card / UPI & Cash tabs.
+    /// Zero-contribution rows (e.g. a payment you fronted entirely for others) and
+    /// money sent that isn't your spending (e.g. to family) are excluded here —
+    /// they still appear in full in the Card / UPI & Cash tabs.
     var allExpenses: [Expense] {
-        (expenses + myTripContributions).filter { $0.amount > 0 }
+        (expenses + myTripContributions).filter { $0.amount > 0 && !$0.isTransfer }
+    }
+
+    /// Accounts / cards (last 4 digits) seen in a list, for the account filter.
+    func accounts(in list: [Expense]) -> [String] {
+        Array(Set(list.compactMap(\.account))).sorted()
     }
 
     var totalExpenses: Double {
@@ -175,7 +181,8 @@ class ExpenseManager: ObservableObject {
         // Land the refund in the tab it was paid back to (e.g. "credited to your card").
         let method = payment.method ?? TransactionParser().parseMessage(payment.rawMessage)?.method
         addExpense(Expense(title: payment.sender, amount: payment.amount, category: .other,
-                           type: .refund, date: payment.date, notes: "", paymentMethod: method))
+                           type: .refund, date: payment.date, notes: "", paymentMethod: method,
+                           account: payment.account))
     }
 
     /// Drop a credit that isn't spending-related (salary, family transfer, …).
@@ -248,10 +255,14 @@ class ExpenseManager: ObservableObject {
         for row in rows {
             if row.isCredit {
                 receivedPayments.append(ReceivedPayment(amount: row.amount, sender: row.merchant, date: row.date,
-                                                        rawMessage: row.description, method: row.method))
+                                                        rawMessage: row.description, method: row.method,
+                                                        account: row.account))
             } else {
+                // Money to your own accounts or to family shows in the method tab, not as spending.
+                let transfer = row.notSpending || row.flag == .selfTransfer
                 created.append(Expense(title: row.merchant, amount: row.amount, category: row.category,
-                                       date: row.date, notes: "", paymentMethod: row.method, sourceKey: row.sourceKey))
+                                       date: row.date, notes: "", paymentMethod: row.method, sourceKey: row.sourceKey,
+                                       account: row.account, transfer: transfer ? true : nil))
             }
         }
         expenses.append(contentsOf: created)
@@ -265,13 +276,15 @@ class ExpenseManager: ObservableObject {
     /// After you rename / recategorise one transaction, bring the payee's others in
     /// line — but only where they still show the old auto name or no category, so
     /// nothing you set by hand is overwritten. Known merchants keep their names.
+    /// `transfer` (when you changed "not my spending") applies to all of them.
     func applyPayeeChoice(sourceKey: String, oldTitle: String, newTitle: String,
-                          category: ExpenseCategory, except id: UUID) {
+                          category: ExpenseCategory, transfer: Bool? = nil, except id: UUID) {
         let key = MerchantNamer.key(sourceKey)
         let rename = !MerchantNamer.isKnown(sourceKey) && newTitle != oldTitle
         for i in expenses.indices where expenses[i].id != id && expenses[i].sourceKey.map(MerchantNamer.key) == key {
             if rename && expenses[i].title == oldTitle { expenses[i].title = newTitle }
             if expenses[i].category == .other { expenses[i].category = category }
+            if let transfer, expenses[i].type == .expense { expenses[i].transfer = transfer ? true : nil }
         }
         saveExpenses()
     }
@@ -296,8 +309,9 @@ class ExpenseManager: ObservableObject {
 
     // Aggregate helpers over a list. Non-split expenses are entirely your own, so
     // their full amount counts as both the total and your share. Refunds subtract.
+    // Money sent that isn't your spending counts as paid, but not as your share.
     func chargedTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.totalAmount ?? $1.displayAmount) } }
-    func myNetTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.myShare ?? $1.displayAmount) } }
+    func myNetTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.isTransfer ? 0 : $1.split?.myShare ?? $1.displayAmount) } }
     func outstandingTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.outstandingTotal ?? 0) } }
     func recoveredTotal(_ list: [Expense]) -> Double { list.reduce(0) { $0 + ($1.split?.settledTotal ?? 0) } }
 
@@ -307,11 +321,6 @@ class ExpenseManager: ObservableObject {
     var creditCardExpenses: [Expense] {
         expensesPaid(via: [.card])
     }
-
-    var creditCardCharged: Double { chargedTotal(creditCardExpenses) }
-    var creditCardMyNet: Double { myNetTotal(creditCardExpenses) }
-    var creditCardOutstanding: Double { outstandingTotal(creditCardExpenses) }
-    var creditCardRecovered: Double { recoveredTotal(creditCardExpenses) }
 
     // MARK: - Billing Cycles
 
@@ -351,16 +360,6 @@ class ExpenseManager: ObservableObject {
         return self.cycle(containing: ref)
     }
 
-    /// Credit-card payments whose date falls in the given cycle, newest first.
-    func creditCardExpenses(in cycle: BillingCycle) -> [Expense] {
-        creditCardExpenses.filter { $0.date >= cycle.start && $0.date < cycle.end }
-    }
-
-    func charged(in cycle: BillingCycle) -> Double { chargedTotal(creditCardExpenses(in: cycle)) }
-    func myNet(in cycle: BillingCycle) -> Double { myNetTotal(creditCardExpenses(in: cycle)) }
-    func outstanding(in cycle: BillingCycle) -> Double { outstandingTotal(creditCardExpenses(in: cycle)) }
-    func recovered(in cycle: BillingCycle) -> Double { recoveredTotal(creditCardExpenses(in: cycle)) }
-
     /// Toggle a single participant's settled state and persist.
     func setSettled(_ settled: Bool, participantID: UUID, in expense: Expense) {
         guard let eIndex = expenses.firstIndex(where: { $0.id == expense.id }),
@@ -373,21 +372,6 @@ class ExpenseManager: ObservableObject {
         if !settled { split.participants[pIndex].paidBack = nil }
         expenses[eIndex].split = split
         saveExpenses()
-    }
-    
-    func expensesForDateRange(start: Date, end: Date) -> [Expense] {
-        allExpenses.filter { $0.date >= start && $0.date <= end }
-    }
-
-    func expensesForMonth(_ date: Date) -> [Expense] {
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month], from: date)
-
-        return allExpenses.filter { expense in
-            let expenseComponents = calendar.dateComponents([.year, .month], from: expense.date)
-            return expenseComponents.year == components.year &&
-                   expenseComponents.month == components.month
-        }
     }
     
     private func saveExpenses() {

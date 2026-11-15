@@ -246,7 +246,9 @@ struct MessageImportView: View {
                 amount: transaction.amount,
                 sender: named.name,
                 date: date,
-                rawMessage: transaction.rawMessage
+                rawMessage: transaction.rawMessage,
+                method: transaction.method,
+                account: transaction.account
             ))
             return
         }
@@ -259,7 +261,9 @@ struct MessageImportView: View {
             notes: "",
             paymentMethod: transaction.method,
             needsReview: true,
-            sourceKey: transaction.merchant
+            sourceKey: transaction.merchant,
+            account: transaction.account,
+            transfer: MerchantNamer.notSpending(transaction.merchant) == true ? true : nil
         ))
     }
 }

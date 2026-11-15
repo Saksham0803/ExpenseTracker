@@ -20,21 +20,17 @@ struct CreditCardView: View {
     @State private var showingLogPayment = false
     @State private var showingGroups = false
     @State private var showingSettings = false
-    @State private var showAllTime = false
+    @State private var period = PeriodFilter(period: .billingCycle)
     @State private var anchorDate = Date()
     @State private var editingPayment: Expense?
 
     private var cycle: ExpenseManager.BillingCycle { expenseManager.cycle(containing: anchorDate) }
 
+    /// Every card payment in the chosen period / cycle and card — including money
+    /// sent that isn't your spending (it counts as charged, not as yours).
     private var payments: [Expense] {
-        showAllTime ? expenseManager.creditCardExpenses : expenseManager.creditCardExpenses(in: cycle)
+        period.apply(expenseManager.creditCardExpenses, cycle: cycle)
     }
-
-    // Stats scoped to the current view (whole history or the selected cycle).
-    private var charged: Double { showAllTime ? expenseManager.creditCardCharged : expenseManager.charged(in: cycle) }
-    private var myNet: Double { showAllTime ? expenseManager.creditCardMyNet : expenseManager.myNet(in: cycle) }
-    private var outstanding: Double { showAllTime ? expenseManager.creditCardOutstanding : expenseManager.outstanding(in: cycle) }
-    private var recovered: Double { showAllTime ? expenseManager.creditCardRecovered : expenseManager.recovered(in: cycle) }
 
     var body: some View {
         NavigationView {
@@ -44,9 +40,15 @@ struct CreditCardView: View {
                 } else {
                     List {
                         Section {
-                            cycleHeader
-                                .listRowInsets(EdgeInsets())
+                            PeriodFilterBar(filter: $period,
+                                            accounts: expenseManager.accounts(in: expenseManager.creditCardExpenses),
+                                            periods: PeriodFilter.Period.allCases)
                                 .listRowBackground(Color.clear)
+                            if period.period == .billingCycle {
+                                cycleHeader
+                                    .listRowInsets(EdgeInsets())
+                                    .listRowBackground(Color.clear)
+                            }
                             statsGrid
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
@@ -54,7 +56,7 @@ struct CreditCardView: View {
 
                         if payments.isEmpty {
                             Section {
-                                Text("No payments in this billing cycle.")
+                                Text(period.period == .billingCycle ? "No payments in this billing cycle." : "No card payments for this filter.")
                                     .foregroundColor(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.vertical, 12)
@@ -132,40 +134,30 @@ struct CreditCardView: View {
     }
 
     private var cycleHeader: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Button {
-                    anchorDate = expenseManager.cycle(offsetting: cycle, by: -1).start
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .disabled(showAllTime)
-
-                Spacer()
-                VStack(spacing: 2) {
-                    Text(showAllTime ? "All time" : cycleTitle(cycle))
-                        .font(.subheadline).fontWeight(.semibold)
-                    Text(showAllTime ? "Every card payment" : "Billing cycle")
-                        .font(.caption2).foregroundColor(.secondary)
-                }
-                Spacer()
-
-                Button {
-                    anchorDate = expenseManager.cycle(offsetting: cycle, by: 1).start
-                } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .disabled(showAllTime || cycle.start >= expenseManager.cycle(containing: Date()).start)
+        HStack {
+            Button {
+                anchorDate = expenseManager.cycle(offsetting: cycle, by: -1).start
+            } label: {
+                Image(systemName: "chevron.left")
             }
+
+            Spacer()
+            VStack(spacing: 2) {
+                Text(cycleTitle(cycle))
+                    .font(.subheadline).fontWeight(.semibold)
+                Text("Billing cycle")
+                    .font(.caption2).foregroundColor(.secondary)
+            }
+            Spacer()
 
             Button {
-                withAnimation { showAllTime.toggle() }
-                if !showAllTime { anchorDate = Date() }
+                anchorDate = expenseManager.cycle(offsetting: cycle, by: 1).start
             } label: {
-                Text(showAllTime ? "View by billing cycle" : "View all time")
-                    .font(.caption)
+                Image(systemName: "chevron.right")
             }
+            .disabled(cycle.start >= expenseManager.cycle(containing: Date()).start)
         }
+        .buttonStyle(.borderless)
         .padding(.horizontal)
         .padding(.top, 8)
     }
@@ -207,12 +199,12 @@ struct CreditCardView: View {
     private var statsGrid: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                StatTile(title: "Charged to card", value: charged, color: .primary)
-                StatTile(title: "Your spending", value: myNet, color: .blue)
+                StatTile(title: "Charged to card", value: expenseManager.chargedTotal(payments), color: .primary)
+                StatTile(title: "Your spending", value: expenseManager.myNetTotal(payments), color: .blue)
             }
             HStack(spacing: 12) {
-                StatTile(title: "Owed to you", value: outstanding, color: .orange)
-                StatTile(title: "Recovered", value: recovered, color: .green)
+                StatTile(title: "Owed to you", value: expenseManager.outstandingTotal(payments), color: .orange)
+                StatTile(title: "Recovered", value: expenseManager.recoveredTotal(payments), color: .green)
             }
         }
         .padding(.horizontal)
@@ -287,8 +279,18 @@ struct PaymentCardView: View {
                 Image(systemName: payment.category.icon)
                     .foregroundColor(payment.category.colorValue)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(payment.title)
-                        .font(.headline)
+                    HStack(spacing: 6) {
+                        Text(payment.title)
+                            .font(.headline)
+                        if payment.isTransfer {
+                            Text("Not spending")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                                .foregroundColor(.secondary)
+                        }
+                    }
                     Text(payment.date, style: .date)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -298,7 +300,7 @@ struct PaymentCardView: View {
                     Text(formatCurrency(split?.totalAmount ?? payment.displayAmount))
                         .font(.headline)
                         .foregroundColor(payment.type == .refund ? .green : .primary)
-                    Label(payment.method.rawValue, systemImage: payment.method.icon)
+                    Label(payment.sourceLabel, systemImage: payment.method.icon)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -379,6 +381,7 @@ struct CashUpiView: View {
     @State private var showingImport = false
     @State private var editingPayment: Expense?
     @State private var filter: MethodFilter = .all
+    @State private var period = PeriodFilter()
 
     enum MethodFilter: String, CaseIterable {
         case all = "All"
@@ -394,7 +397,7 @@ struct CashUpiView: View {
         }
     }
 
-    private var payments: [Expense] { expenseManager.expensesPaid(via: filter.methods) }
+    private var payments: [Expense] { period.apply(expenseManager.expensesPaid(via: filter.methods)) }
 
     var body: some View {
         NavigationView {
@@ -410,6 +413,10 @@ struct CashUpiView: View {
                             .pickerStyle(.segmented)
                             .listRowBackground(Color.clear)
 
+                            PeriodFilterBar(filter: $period,
+                                            accounts: expenseManager.accounts(in: expenseManager.expensesPaid(via: filter.methods)))
+                                .listRowBackground(Color.clear)
+
                             statsGrid
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
@@ -417,7 +424,7 @@ struct CashUpiView: View {
 
                         if payments.isEmpty {
                             Section {
-                                Text("No \(filter.rawValue.lowercased()) split payments yet.")
+                                Text("No \(filter == .all ? "UPI or cash" : filter.rawValue) payments for this filter.")
                                     .foregroundColor(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.vertical, 12)

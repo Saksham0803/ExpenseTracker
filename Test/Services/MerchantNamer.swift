@@ -14,6 +14,7 @@ enum MerchantNamer {
         var name: String?          // set only for payees the built-in list doesn't know
         var category: ExpenseCategory
         var ownAccount: Bool?      // your call on "transfer to my own account"; nil = not decided
+        var notSpending: Bool?     // money sent to them isn't your spending (e.g. family); nil = not decided
     }
 
     private static let rulesKey = "MerchantRules"
@@ -42,10 +43,14 @@ enum MerchantNamer {
     /// Whether you've marked this payee as one of your own accounts (nil if never said).
     static func ownAccount(_ raw: String) -> Bool? { rules[key(raw)]?.ownAccount }
 
-    static func learn(_ raw: String, name: String?, category: ExpenseCategory, ownAccount: Bool? = nil) {
+    /// Whether you've said money sent to this payee isn't your spending (nil if never said).
+    static func notSpending(_ raw: String) -> Bool? { rules[key(raw)]?.notSpending }
+
+    static func learn(_ raw: String, name: String?, category: ExpenseCategory, ownAccount: Bool? = nil, notSpending: Bool? = nil) {
         var all = rules
         all[key(raw)] = Rule(name: isKnown(raw) ? nil : name, category: category,
-                             ownAccount: ownAccount ?? all[key(raw)]?.ownAccount)
+                             ownAccount: ownAccount ?? all[key(raw)]?.ownAccount,
+                             notSpending: notSpending ?? all[key(raw)]?.notSpending)
         if let data = try? JSONEncoder().encode(all) {
             UserDefaults.standard.set(data, forKey: rulesKey)
         }

@@ -17,9 +17,11 @@ struct ExpenseListView: View {
     @State private var splittingExpense: Expense?
     @State private var showingReviewInbox = false
     @State private var searchText = ""
+    /// Shared with the Summary tab, which totals exactly this list.
+    @Binding var filter: PeriodFilter
     
     private var filteredExpenses: [Expense] {
-        let base = expenseManager.allExpenses
+        let base = filter.apply(expenseManager.allExpenses)
         if searchText.isEmpty {
             return base.sorted { $0.date > $1.date }
         } else {
@@ -52,16 +54,19 @@ struct ExpenseListView: View {
                         .padding(.top, 8)
                     }
                 }
+                PeriodFilterBar(filter: $filter, accounts: expenseManager.accounts(in: expenseManager.allExpenses))
+                    .padding(.horizontal)
+                    .padding(.top, 8)
                 if filteredExpenses.isEmpty {
                     Spacer()
                     VStack(spacing: 16) {
                         Image(systemName: "tray")
                             .font(.system(size: 60))
                             .foregroundColor(.gray)
-                        Text("No expenses yet")
+                        Text(expenseManager.allExpenses.isEmpty ? "No expenses yet" : "No expenses for this filter")
                             .font(.title2)
                             .foregroundColor(.secondary)
-                        Text("Tap the + button to add your first expense")
+                        Text(expenseManager.allExpenses.isEmpty ? "Tap the + button to add your first expense" : "Pick another period or account above")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -218,16 +223,23 @@ struct ExpenseRowView: View {
             
             Spacer()
             
-            // Amount
-            HStack(spacing: 4) {
-                if expense.type == .refund {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.caption)
-                        .foregroundColor(.green)
+            // Amount, and where it was paid from when known ("UPI ••1234")
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack(spacing: 4) {
+                    if expense.type == .refund {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                    Text(formatCurrency(expense.displayAmount))
+                        .font(.headline)
+                        .foregroundColor(expense.type == .refund ? .green : .primary)
                 }
-                Text(formatCurrency(expense.displayAmount))
-                    .font(.headline)
-                    .foregroundColor(expense.type == .refund ? .green : .primary)
+                if expense.account != nil {
+                    Text(expense.sourceLabel)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -251,6 +263,6 @@ struct ExpenseRowView: View {
 }
 
 #Preview {
-    ExpenseListView()
+    ExpenseListView(filter: .constant(PeriodFilter()))
         .environmentObject(ExpenseManager())
 }
