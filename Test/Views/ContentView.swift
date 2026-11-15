@@ -11,10 +11,12 @@ struct ContentView: View {
     @EnvironmentObject var expenseManager: ExpenseManager
     @StateObject private var notifications = NotificationManager.shared
     @State private var showingAddExpense = false
+    /// One filter for Expenses and Summary, so Summary totals what Expenses lists.
+    @State private var spendingFilter = PeriodFilter()
 
     var body: some View {
         TabView {
-            ExpenseListView()
+            ExpenseListView(filter: $spendingFilter)
                 .tabItem {
                     Label("Expenses", systemImage: "list.bullet")
                 }
@@ -34,7 +36,7 @@ struct ContentView: View {
                     Label("Trips", systemImage: "suitcase.fill")
                 }
 
-            SummaryView()
+            SummaryView(filter: $spendingFilter)
                 .tabItem {
                     Label("Summary", systemImage: "chart.pie.fill")
                 }

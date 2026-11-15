@@ -27,8 +27,16 @@ struct StatementImportView: View {
     @State private var splitCount = 0
     @State private var showingDone = false
     @State private var lastImport = (logged: 0, credits: 0)
+    /// Last 4 digits of the statement's account / card, saved on every row.
+    @State private var account = ""
 
     private var selected: [StatementRow] { rows.filter(\.include) }
+
+    /// Rows tagged with the account shown above (as read from the statement or typed).
+    private func withAccount(_ list: [StatementRow]) -> [StatementRow] {
+        let digits = String(account.filter(\.isNumber).suffix(4))
+        return list.map { var row = $0; row.account = digits.isEmpty ? nil : digits; return row }
+    }
 
     var body: some View {
         NavigationView {
@@ -72,10 +80,11 @@ struct StatementImportView: View {
                 ExpenseEditorView(editing: expense, startSplitting: true)
             }
             .sheet(item: $renaming) { row in
-                PayeeEditView(row: row, sameCount: rows.filter { samePayee($0, row) }.count) { name, category, own in
+                PayeeEditView(row: row, sameCount: rows.filter { samePayee($0, row) }.count) { name, category, own, notSpending in
                     for i in rows.indices where samePayee(rows[i], row) {
                         rows[i].merchant = name
                         rows[i].category = category
+                        if let notSpending { rows[i].notSpending = notSpending }
                         guard let own else { continue }   // switch untouched: leave flags as they are
                         if own, rows[i].flag == nil || rows[i].flag == .selfTransfer {
                             rows[i].flag = .selfTransfer
@@ -85,7 +94,7 @@ struct StatementImportView: View {
                             rows[i].include = true
                         }
                     }
-                    MerchantNamer.learn(row.sourceKey, name: name, category: category, ownAccount: own)
+                    MerchantNamer.learn(row.sourceKey, name: name, category: category, ownAccount: own, notSpending: notSpending)
                 }
             }
             .alert("Imported", isPresented: $showingDone) {
@@ -151,6 +160,7 @@ struct StatementImportView: View {
             var parsed = try StatementParser().parse(url: fileURL, source: source, password: needsPassword ? password : nil)
             expenseManager.markDuplicates(&parsed)
             rows = parsed.sorted { $0.date > $1.date }
+            account = parsed.first?.account ?? ""
             needsPassword = false
             errorMessage = nil
         } catch StatementError.locked {
@@ -168,6 +178,7 @@ struct StatementImportView: View {
         let duplicates = rows.filter { $0.flag == .duplicate }.count
         let billPayments = rows.filter { $0.flag == .cardBillPayment }.count
         let ownTransfers = rows.filter { $0.flag == .selfTransfer }.count
+        let notSpending = rows.filter { $0.notSpending && $0.flag == nil }.count
         return Section(footer: Text("Ticked rows are logged. Money received goes to Needs Review so you can match paybacks. Tap Split to share a spend, just like a new expense.")) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(rows.count) transactions found").font(.headline)
@@ -180,9 +191,19 @@ struct StatementImportView: View {
                 if ownTransfers > 0 {
                     Text("\(ownTransfers) transfer\(ownTransfers == 1 ? "" : "s") between your own accounts — unticked").font(.subheadline).foregroundColor(.purple)
                 }
+                if notSpending > 0 {
+                    Text("\(notSpending) not your spending — logged to the UPI & Cash / Card tab only").font(.subheadline).foregroundColor(.secondary)
+                }
                 if splitCount > 0 {
                     Text("\(splitCount) already imported as split").font(.subheadline).foregroundColor(.green)
                 }
+            }
+            HStack {
+                Text(source == .card ? "Card" : "Account")
+                Spacer()
+                TextField("Last 4 digits", text: $account)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
             }
             Button("Choose a different file") {
                 rows = []
@@ -223,6 +244,7 @@ struct StatementImportView: View {
                     if r.flag == .duplicate { badge("Already logged", .orange) }
                     if r.flag == .cardBillPayment { badge("Card bill payment", .gray) }
                     if r.flag == .selfTransfer { badge("Own account", .purple) }
+                    if r.notSpending && !r.isCredit && r.flag == nil { badge("Not spending", .gray) }
                     if r.isCredit && r.flag != .selfTransfer { badge("Money received", .green) }
                     if !r.isCredit && r.flag == nil {
                         Button("Split") { split(r.id) }
@@ -270,7 +292,7 @@ struct StatementImportView: View {
     /// Log this spend now and open the normal split editor on it.
     private func split(_ id: UUID) {
         guard let index = rows.firstIndex(where: { $0.id == id }),
-              let expense = expenseManager.importStatementRows([rows[index]]).first else { return }
+              let expense = expenseManager.importStatementRows(withAccount([rows[index]])).first else { return }
         rows.remove(at: index)
         splitCount += 1
         splitting = expense
@@ -278,7 +300,7 @@ struct StatementImportView: View {
 
     private func importSelected() {
         let chosen = selected
-        expenseManager.importStatementRows(chosen)
+        expenseManager.importStatementRows(withAccount(chosen))
         lastImport = (chosen.count + splitCount, chosen.filter(\.isCredit).count)
         showingDone = true
     }
@@ -298,20 +320,22 @@ struct PayeeEditView: View {
     @Environment(\.dismiss) var dismiss
     let row: StatementRow
     let sameCount: Int
-    /// Name, category, and the own-account switch — nil if you didn't touch it.
-    let onSave: (String, ExpenseCategory, Bool?) -> Void
+    /// Name, category, and the own-account / not-spending switches — nil if you didn't touch them.
+    let onSave: (String, ExpenseCategory, Bool?, Bool?) -> Void
 
     @State private var name: String
     @State private var category: ExpenseCategory
     @State private var ownAccount: Bool
+    @State private var notSpending: Bool
 
-    init(row: StatementRow, sameCount: Int, onSave: @escaping (String, ExpenseCategory, Bool?) -> Void) {
+    init(row: StatementRow, sameCount: Int, onSave: @escaping (String, ExpenseCategory, Bool?, Bool?) -> Void) {
         self.row = row
         self.sameCount = sameCount
         self.onSave = onSave
         _name = State(initialValue: row.merchant)
         _category = State(initialValue: row.category)
         _ownAccount = State(initialValue: row.flag == .selfTransfer)
+        _notSpending = State(initialValue: row.notSpending)
     }
 
     var body: some View {
@@ -333,6 +357,11 @@ struct PayeeEditView: View {
                 Section(footer: Text("Transfers to your own accounts aren't spending or paybacks, so they're left unticked.")) {
                     Toggle("This is my own account", isOn: $ownAccount)
                 }
+                if !row.isCredit {
+                    Section(footer: Text("For money you send that isn't your own spending, like to family. It's logged to the UPI & Cash / Card tab but stays out of Expenses and Summary.")) {
+                        Toggle("Not my spending", isOn: $notSpending)
+                    }
+                }
             }
             .navigationTitle("Payee")
             .navigationBarTitleDisplayMode(.inline)
@@ -341,7 +370,9 @@ struct PayeeEditView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         let ownChanged = ownAccount != (row.flag == .selfTransfer)
-                        onSave(name.trimmingCharacters(in: .whitespaces), category, ownChanged ? ownAccount : nil)
+                        let notSpendingChanged = notSpending != row.notSpending
+                        onSave(name.trimmingCharacters(in: .whitespaces), category, ownChanged ? ownAccount : nil,
+                               notSpendingChanged ? notSpending : nil)
                         dismiss()
                     }
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)

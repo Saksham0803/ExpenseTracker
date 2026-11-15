@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ShortcutsSetupView: View {
     @Environment(\.dismiss) var dismiss
+    @State private var runs: [CaptureRun] = []
     
     var body: some View {
         NavigationView {
@@ -85,13 +86,13 @@ struct ShortcutsSetupView: View {
                         InstructionStep(
                             number: 2,
                             title: "Trigger on bank messages",
-                            description: "Set 'Message Contains' to 'debited' and choose 'Run Immediately'. Make a second automation for 'credited' so paybacks from friends are caught too."
+                            description: "Set 'Message Contains' to a word your bank uses and choose 'Run Immediately'. Banks word it differently, so make one automation per word: 'debited', 'credited', 'Dr.', 'Sent', 'Spent'. Overlaps are fine — each SMS is logged once, and non-bank messages are ignored."
                         )
 
                         InstructionStep(
                             number: 3,
                             title: "Add 'Log Transaction from Message'",
-                            description: "Add this Daily Expense action and pass it the 'Shortcut Input' (the message text)."
+                            description: "Add this Daily Expense action. Tap its Message field, choose 'Shortcut Input', then tap that blue token again and pick 'Content' so it gets the message text."
                         )
 
                         InstructionStep(
@@ -99,6 +100,37 @@ struct ShortcutsSetupView: View {
                             title: "Done",
                             description: "Spends are logged and you get a nudge to add a note. Money you receive waits in review so you can match it to who paid you back."
                         )
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(.systemGray6))
+                    )
+
+                    // What the automations actually sent — for diagnosing misfires.
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Recent Auto-Capture Runs")
+                            .font(.headline)
+                        if runs.isEmpty {
+                            Text("Nothing yet. When an automation runs, the text it sent and what happened show up here.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        ForEach(runs) { run in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(run.outcome).font(.subheadline).fontWeight(.semibold)
+                                    Spacer()
+                                    Text(run.date, style: .time).font(.caption).foregroundColor(.secondary)
+                                }
+                                Text(run.text.isEmpty ? "(empty — the automation passed no text)" : run.text)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(4)
+                                    .textSelection(.enabled)
+                            }
+                            Divider()
+                        }
                     }
                     .padding()
                     .background(
@@ -206,7 +238,10 @@ struct ShortcutsSetupView: View {
             }
             .navigationTitle("Shortcuts Setup")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { NotificationManager.shared.requestAuthorization() }
+            .onAppear {
+                NotificationManager.shared.requestAuthorization()
+                runs = LogTransactionIntent.recentRuns
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {

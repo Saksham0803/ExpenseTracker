@@ -16,6 +16,8 @@ struct ParsedTransaction {
     let method: PaymentMethod?
     /// True when money came in (credited / received / refund) rather than went out.
     let isCredit: Bool
+    /// Last 4 digits of your account / card ("A/C XXXXXX1234" → "1234"), if mentioned.
+    let account: String?
     let rawMessage: String
 }
 
@@ -23,11 +25,14 @@ class TransactionParser {
 
     func parseMessage(_ message: String) -> ParsedTransaction? {
         let cleaned = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let amount = extractAmount(from: cleaned) else { return nil }
+        guard let amount = extractAmount(from: cleaned) ?? extractBareAmount(from: cleaned) else { return nil }
 
         let credit = isCredit(cleaned)
-        // For money received, the useful name is who sent it, not a merchant.
-        let merchant = (credit ? extractSender(from: cleaned) : extractMerchant(from: cleaned)) ?? "Transaction"
+        // For money received, the useful name is who sent it, not a merchant. Some
+        // banks don't say (BOB: "Your account is credited with INR 2385.00 … by UPI").
+        let method = inferMethod(from: cleaned)
+        let unnamed = credit ? (method == .upi ? "UPI credit" : "Bank credit") : "Transaction"
+        let merchant = (credit ? extractSender(from: cleaned) : extractMerchant(from: cleaned)) ?? unnamed
         let date = extractDate(from: cleaned)
         let category = inferCategory(from: merchant)
 
@@ -36,18 +41,56 @@ class TransactionParser {
             merchant: merchant,
             date: date,
             category: category,
-            method: inferMethod(from: cleaned),
+            method: method,
             isCredit: credit,
+            account: extractAccount(from: cleaned),
             rawMessage: cleaned
         )
     }
 
-    /// Money in: mentions credited/received/refund and none of the debit words.
+    /// Your account / card is the first one named: "Dr. from A/C XXXXXX1234 and Cr. to …",
+    /// "From HDFC Bank A/C *5678", "A/c XX5678", "Card ending 1234". Keeps the last 4 digits.
+    private func extractAccount(from message: String) -> String? {
+        let pattern = #"(?i)\b(?:a/c|acct|account|card)(?:\s+(?:no\.?|number|ending(?:\s+with)?))?\s*[:.]?\s*[X*•.]*\s?(\d{3,18})\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+              let range = Range(match.range(at: 1), in: message) else { return nil }
+        return String(message[range].suffix(4))
+    }
+
+    private static let debitWords = [#"\bdebited\b"#, #"\bdr\b"#, #"\bspent\b"#, #"\bsent\b"#, #"\bpaid\b"#,
+                                     #"\bwithdrawn\b"#, #"\bdebit\b"#, #"\bpurchase"#]
+    private static let creditWords = [#"\bcredited\b"#, #"\bcr\b"#, #"\breceived\b"#, #"\brefund"#, #"\bdeposited\b"#]
+
+    /// Money in or out, from whichever money word comes first — the opening clause
+    /// is about your account: "Rs.1.00 Dr. from A/C …1234 and Cr. to friend@oksbi"
+    /// is a debit, "Acct XX12 credited with Rs 500 … paid by RAHUL" a credit.
     private func isCredit(_ message: String) -> Bool {
-        let lower = message.lowercased()
-        let creditWord = lower.contains("credited") || lower.contains("received") || lower.contains("refund")
-        let debitWord = lower.contains("debited") || lower.contains("spent") || lower.contains("paid to") || lower.contains("sent to")
-        return creditWord && !debitWord
+        let debit = Self.firstMatch(of: Self.debitWords, in: message)
+        let credit = Self.firstMatch(of: Self.creditWords, in: message)
+        switch (debit, credit) {
+        case let (d?, c?): return c < d
+        case (nil, _?): return true
+        default: return false
+        }
+    }
+
+    private static func firstMatch(of patterns: [String], in message: String) -> String.Index? {
+        patterns.compactMap { message.range(of: $0, options: [.regularExpression, .caseInsensitive])?.lowerBound }.min()
+    }
+
+    /// A real bank/card/UPI alert, not an offer or a chat: it says money moved
+    /// and names an account, card, UPI or a UPI handle. Auto-capture ignores the rest.
+    static func looksLikeBankTransaction(_ message: String) -> Bool {
+        guard firstMatch(of: debitWords + creditWords, in: message) != nil else { return false }
+        let reference = #"\b(a/c|acct|account|card|upi|vpa)\b|[A-Za-z0-9._-]+@[A-Za-z]+"#
+        return message.range(of: reference, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Name part of a UPI handle ("friend123@oksbi" → "friend123").
+    private func handleName(in message: String) -> String? {
+        guard let range = message.range(of: #"[A-Za-z0-9][A-Za-z0-9._-]*(?=@[A-Za-z]+)"#, options: .regularExpression) else { return nil }
+        return String(message[range]).replacingOccurrences(of: #"-\d{1,2}$"#, with: "", options: .regularExpression)
     }
 
     /// Who the money came from: "from <name>", else the name part of a UPI VPA.
@@ -62,19 +105,16 @@ class TransactionParser {
                 return candidate
             }
         }
-        if let regex = try? NSRegularExpression(pattern: #"([A-Za-z][A-Za-z0-9._-]*)@[A-Za-z]+"#),
-           let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
-           let range = Range(match.range(at: 1), in: message) {
-            return String(message[range])
-        }
-        return nil
+        return handleName(in: message)
     }
 
-    /// UPI if the message mentions UPI/VPA, card if it mentions a card; otherwise unknown.
+    /// UPI if the message mentions UPI/VPA, card if it mentions a card, UPI if it
+    /// names a UPI handle ("to friend@oksbi"); otherwise unknown.
     private func inferMethod(from message: String) -> PaymentMethod? {
         let lower = message.lowercased()
         if lower.contains("upi") || lower.contains("vpa") { return .upi }
         if lower.contains("card") { return .card }
+        if handleName(in: message) != nil { return .upi }
         return nil
     }
 
@@ -91,10 +131,24 @@ class TransactionParser {
         return Double(cleaned)
     }
 
+    /// Some banks print no currency: "A/C X1234 debited by 20.0 on …" (SBI UPI).
+    private func extractBareAmount(from message: String) -> Double? {
+        let pattern = #"(?i)\b(?:debited|credited)\s+(?:by|for|with)\s+([\d,]+(?:\.\d{1,2})?)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+              let range = Range(match.range(at: 1), in: message) else { return nil }
+        return Double(message[range].replacingOccurrences(of: ",", with: ""))
+    }
+
     /// Merchant/payee after "at"/"to"/"@"/"for", stopping at trailing noise
     /// (on <date>, via UPI, Ref…, etc.).
     private func extractMerchant(from message: String) -> String? {
-        let stop = #"(?=\s+(?:on|via|ref|dated|txn|info|avl|bal|using|through|upi|a/c|ac)\b|[.,;!]|$)"#
+        let stop = #"(?=\s*\n|\s+(?:on|via|ref|refno|dated|txn|info|avl|bal|using|through|upi|a/c|ac)\b|[.,;!]|$)"#
+        // ICICI style: "Acct XX123 debited for Rs 349.00 on …; ZOMATO credited."
+        if let range = message.range(of: #"(?i);\s*[A-Za-z][A-Za-z0-9&'.\- ]*?(?=\s+credited\b)"#, options: .regularExpression) {
+            let candidate = cleanMerchantName(String(message[range].dropFirst()))
+            if !candidate.isEmpty { return candidate }
+        }
         for keyword in ["at", "to", "@", "for"] {
             let pattern = "(?i)\\b\(keyword)\\s+([A-Za-z0-9&'.\\- ]+?)\(stop)"
             guard let regex = try? NSRegularExpression(pattern: pattern),
@@ -104,11 +158,13 @@ class TransactionParser {
             }
             let candidate = cleanMerchantName(String(message[range]))
             let lower = candidate.lowercased()
-            // Skip account-number targets like "A/c XX1234".
-            if candidate.isEmpty || lower.hasPrefix("a/c") || lower.hasPrefix("ac ") { continue }
+            // Skip account-number targets like "A/c XX1234" and amounts like "for Rs 349".
+            if candidate.isEmpty || lower.hasPrefix("a/c") || lower.hasPrefix("ac ")
+                || lower.hasPrefix("rs") || lower.hasPrefix("inr") || candidate.first?.isNumber == true { continue }
             return candidate
         }
-        return nil
+        // Payee given only as a UPI handle: "Cr. to friend123@oksbi".
+        return handleName(in: message)
     }
     
     private func cleanMerchantName(_ name: String) -> String {

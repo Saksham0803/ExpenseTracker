@@ -123,9 +123,23 @@ struct LogTransactionIntent: AppIntent {
     @Parameter(title: "Message", description: "The transaction SMS or notification text")
     var message: String
 
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let parsed = TransactionParser().parseMessage(message), parsed.amount > 0 else {
-            return .result(dialog: IntentDialog("Couldn't read a transaction amount from that message."))
+    // Runs silently (no pop-up): a logged transaction gets its own notification,
+    // and every run is listed in Shortcuts setup so a misfire can be diagnosed.
+    func perform() async throws -> some IntentResult {
+        let text = message
+        // Broad triggers ("Dr.", "Sent") also catch offers and chats — only log real alerts.
+        guard TransactionParser.looksLikeBankTransaction(text) else {
+            await MainActor.run { Self.recordRun(text, outcome: "Skipped — doesn't look like a bank alert") }
+            return .result()
+        }
+        guard let parsed = TransactionParser().parseMessage(text), parsed.amount > 0 else {
+            await MainActor.run { Self.recordRun(text, outcome: "Skipped — no amount found") }
+            return .result()
+        }
+        // One SMS can match two automations (e.g. "Dr." and "credited"): log it once.
+        if await MainActor.run(body: { Self.seenRecently(text) }) {
+            await MainActor.run { Self.recordRun(text, outcome: "Already logged") }
+            return .result()
         }
 
         // Store the date in IST, matching the rest of the app.
@@ -139,8 +153,11 @@ struct LogTransactionIntent: AppIntent {
         let amount = parsed.amount
         let parsedCategory = parsed.category ?? .other
         let method = parsed.method
+        let account = parsed.account
         // Readable name + category: what you've taught the app, then known merchants.
         let named = await MainActor.run { MerchantNamer.resolve(rawMerchant) }
+        // Payees you've marked "not my spending" (e.g. family) stay out of Expenses.
+        let notSpending = await MainActor.run { MerchantNamer.notSpending(rawMerchant) == true }
         let merchant = named.name
 
         // Money in: park it for matching against who owes you; never counts as spending.
@@ -148,11 +165,13 @@ struct LogTransactionIntent: AppIntent {
             let raw = parsed.rawMessage
             await MainActor.run {
                 ExpenseManager.shared.addReceivedPayment(
-                    ReceivedPayment(amount: amount, sender: merchant, date: date, rawMessage: raw)
+                    ReceivedPayment(amount: amount, sender: merchant, date: date, rawMessage: raw,
+                                    method: method, account: account)
                 )
                 NotificationManager.shared.notifyReceived(sender: merchant, amount: amount)
+                Self.recordRun(text, outcome: "Money received: \(NotificationManager.currency(amount)) from \(merchant)")
             }
-            return .result(dialog: IntentDialog("Received \(NotificationManager.currency(amount)) from \(merchant)."))
+            return .result()
         }
 
         await MainActor.run {
@@ -165,13 +184,55 @@ struct LogTransactionIntent: AppIntent {
                 notes: "",
                 paymentMethod: method,
                 needsReview: true,
-                sourceKey: rawMerchant
+                sourceKey: rawMerchant,
+                account: account,
+                transfer: notSpending ? true : nil
             )
             ExpenseManager.shared.addExpense(expense)
             NotificationManager.shared.notifyLogged(title: merchant, amount: amount)
+            Self.recordRun(text, outcome: "Logged: \(NotificationManager.currency(amount)) at \(merchant)")
         }
 
-        return .result(dialog: IntentDialog("Logged \(NotificationManager.currency(amount)) at \(merchant)."))
+        return .result()
+    }
+}
+
+/// One auto-capture run: the text the automation passed in and what happened.
+struct CaptureRun: Codable, Identifiable {
+    var id = UUID()
+    let date: Date
+    let text: String
+    let outcome: String
+}
+
+extension LogTransactionIntent {
+    private static let runsKey = "RecentCaptureRuns"
+
+    /// The last 10 runs, newest first (shown in Shortcuts setup).
+    static var recentRuns: [CaptureRun] {
+        guard let data = UserDefaults.standard.data(forKey: runsKey),
+              let runs = try? JSONDecoder().decode([CaptureRun].self, from: data) else { return [] }
+        return runs
+    }
+
+    @MainActor static func recordRun(_ text: String, outcome: String) {
+        let run = CaptureRun(date: Date(), text: String(text.prefix(300)), outcome: outcome)
+        if let data = try? JSONEncoder().encode(Array(([run] + recentRuns).prefix(10))) {
+            UserDefaults.standard.set(data, forKey: runsKey)
+        }
+    }
+
+    /// True if this exact message was captured in the last 10 minutes; records it otherwise.
+    @MainActor static func seenRecently(_ message: String) -> Bool {
+        let key = "RecentCapturedMessages"
+        let now = Date().timeIntervalSince1970
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        var recent = (UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:])
+            .filter { now - $0.value < 600 }
+        let seen = recent[text] != nil
+        recent[text] = now
+        UserDefaults.standard.set(recent, forKey: key)
+        return seen
     }
 }
 

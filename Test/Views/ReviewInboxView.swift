@@ -119,11 +119,13 @@ struct ReviewAnnotateView: View {
     let expense: Expense
     @State private var category: ExpenseCategory
     @State private var notes: String
+    @State private var notSpending: Bool
 
     init(expense: Expense) {
         self.expense = expense
         _category = State(initialValue: expense.category)
         _notes = State(initialValue: expense.notes)
+        _notSpending = State(initialValue: expense.isTransfer)
     }
 
     var body: some View {
@@ -143,6 +145,12 @@ struct ReviewAnnotateView: View {
                         ForEach(ExpenseCategory.allCases, id: \.self) { c in
                             Label(c.rawValue, systemImage: c.icon).tag(c)
                         }
+                    }
+                }
+
+                if expense.split == nil {
+                    Section(footer: Text("For money sent that isn't your own spending, like to family. It stays in the Card / UPI & Cash tab, out of Expenses and Summary — and future payments to them follow.")) {
+                        Toggle("Not my spending", isOn: $notSpending)
                     }
                 }
 
@@ -181,6 +189,13 @@ struct ReviewAnnotateView: View {
         updated.category = category
         updated.notes = notes
         updated.needsReview = false
+        updated.transfer = notSpending ? true : nil
+        // Remember "not my spending" for this payee, and apply it to their other payments.
+        if notSpending != expense.isTransfer, let key = expense.sourceKey {
+            MerchantNamer.learn(key, name: expense.title, category: category, notSpending: notSpending)
+            expenseManager.applyPayeeChoice(sourceKey: key, oldTitle: expense.title, newTitle: expense.title,
+                                            category: category, transfer: notSpending, except: expense.id)
+        }
         expenseManager.updateExpense(updated)
         dismiss()
     }

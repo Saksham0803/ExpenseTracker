@@ -88,14 +88,17 @@ struct ReceivedPayment: Identifiable, Codable {
     var rawMessage: String
     /// Where the money landed, when known (statement imports); used if it's marked a refund.
     var method: PaymentMethod?
+    /// Last 4 digits of the account / card it landed in, when known.
+    var account: String?
 
-    nonisolated init(id: UUID = UUID(), amount: Double, sender: String, date: Date = Date(), rawMessage: String = "", method: PaymentMethod? = nil) {
+    nonisolated init(id: UUID = UUID(), amount: Double, sender: String, date: Date = Date(), rawMessage: String = "", method: PaymentMethod? = nil, account: String? = nil) {
         self.id = id
         self.amount = amount
         self.sender = sender
         self.date = date
         self.rawMessage = rawMessage
         self.method = method
+        self.account = account
     }
 }
 
